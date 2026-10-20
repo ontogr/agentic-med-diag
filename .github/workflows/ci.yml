@@ -168,7 +168,7 @@ jobs:
           name: codecov-am-diag
           fail_ci_if_error: false
           verbose: true
-          slug: avnlp/agentic-med-diag
+          slug: ontogr/agentic-med-diag
         env:
           OS: ubuntu-latest
           PYTHON: "3.12"

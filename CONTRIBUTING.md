@@ -147,7 +147,7 @@ make clean                 # remove build artifacts and caches
 
 ## Reporting Issues
 
-Please use [GitHub Issues](https://github.com/avnlp/agentic-med-diag/issues) to report bugs or request features. For bugs, include a minimal reproduction, the expected and actual behaviour, and your environment (OS, Python version, relevant service versions).
+Please use [GitHub Issues](https://github.com/ontogr/agentic-med-diag/issues) to report bugs or request features. For bugs, include a minimal reproduction, the expected and actual behaviour, and your environment (OS, Python version, relevant service versions).
 
 ## License
 
