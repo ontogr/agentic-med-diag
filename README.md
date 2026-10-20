@@ -9,7 +9,7 @@
 [![Bandit](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-med-diag/ci.yml?branch=main&label=Bandit&logo=owasp)](https://github.com/ontogr/agentic-med-diag/actions/workflows/ci.yml)
 [![Unit tests](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-med-diag/ci.yml?branch=main&label=unit%20tests&logo=pytest&job=Tests)](https://github.com/ontogr/agentic-med-diag/actions/workflows/ci.yml)
 [![Integration tests](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-med-diag/ci.yml?branch=main&label=integration%20tests&logo=pytest&job=Integration+Tests)](https://github.com/ontogr/agentic-med-diag/actions/workflows/ci.yml)
-[![Codecov](https://codecov.io/github/ontogr/agentic-med-diag/graph/badge.svg?token=83MYFZ3UPA)](https://codecov.io/github/ontogr/agentic-med-diag)
+[![Codecov](https://codecov.io/gh/ontogr/agentic-med-diag/graph/badge.svg?token=O5jfEIj5ar)](https://codecov.io/gh/ontogr/agentic-med-diag)
 [![License](https://img.shields.io/github/license/ontogr/agentic-med-diag?color=green)](https://github.com/ontogr/agentic-med-diag/blob/main/LICENSE)
 
 </div>
