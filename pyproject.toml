@@ -57,9 +57,9 @@ dependencies = [
 am-diag = "am_diag.cli.main:main"
 
 [project.urls]
-Documentation = "https://github.com/avnlp/agentic-med-diag#readme"
-Issues = "https://github.com/avnlp/agentic-med-diag/issues"
-Source = "https://github.com/avnlp/agentic-med-diag"
+Documentation = "https://github.com/ontogr/agentic-med-diag#readme"
+Issues = "https://github.com/ontogr/agentic-med-diag/issues"
+Source = "https://github.com/ontogr/agentic-med-diag"
 
 [dependency-groups]
 dev = [

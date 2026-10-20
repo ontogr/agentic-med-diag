@@ -7,7 +7,7 @@
 **Layout**: flat. The package is `am_diag/` at the repo root and everything outside `am_diag/` (tests) is not part of the distribution.
 
 - Python package: `am_diag`.
-- Repository: `https://github.com/avnlp/agentic-med-diag`.
+- Repository: `https://github.com/ontogr/agentic-med-diag`.
 - License: Apache-2.0.
 - Python: `>=3.11`.
 - Package manager and command runner: `uv`.

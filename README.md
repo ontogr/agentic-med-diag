@@ -1,16 +1,16 @@
-<h1 align="center"><a href="https://github.com/avnlp/agentic-med-diag">Agentic GraphRAG for Medical Diagnosis</a></h1>
+<h1 align="center"><a href="https://github.com/ontogr/agentic-med-diag">Agentic GraphRAG for Medical Diagnosis</a></h1>
 
 <div align="center">
 
-[![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/avnlp/agentic-med-diag)
-[![CI](https://img.shields.io/github/actions/workflow/status/avnlp/agentic-med-diag/ci.yml?branch=main&label=CI&logo=githubactions)](https://github.com/avnlp/agentic-med-diag/actions/workflows/ci.yml)
-[![Ruff](https://img.shields.io/github/actions/workflow/status/avnlp/agentic-med-diag/ci.yml?branch=main&label=Ruff&logo=ruff)](https://github.com/avnlp/agentic-med-diag/actions/workflows/ci.yml)
-[![ty](https://img.shields.io/github/actions/workflow/status/avnlp/agentic-med-diag/ci.yml?branch=main&label=ty&logo=python)](https://github.com/avnlp/agentic-med-diag/actions/workflows/ci.yml)
-[![Bandit](https://img.shields.io/github/actions/workflow/status/avnlp/agentic-med-diag/ci.yml?branch=main&label=Bandit&logo=owasp)](https://github.com/avnlp/agentic-med-diag/actions/workflows/ci.yml)
-[![Unit tests](https://img.shields.io/github/actions/workflow/status/avnlp/agentic-med-diag/ci.yml?branch=main&label=unit%20tests&logo=pytest&job=Tests)](https://github.com/avnlp/agentic-med-diag/actions/workflows/ci.yml)
-[![Integration tests](https://img.shields.io/github/actions/workflow/status/avnlp/agentic-med-diag/ci.yml?branch=main&label=integration%20tests&logo=pytest&job=Integration+Tests)](https://github.com/avnlp/agentic-med-diag/actions/workflows/ci.yml)
-[![Codecov](https://codecov.io/github/avnlp/agentic-med-diag/graph/badge.svg?token=83MYFZ3UPA)](https://codecov.io/github/avnlp/agentic-med-diag)
-[![License](https://img.shields.io/github/license/avnlp/agentic-med-diag?color=green)](https://github.com/avnlp/agentic-med-diag/blob/main/LICENSE)
+[![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ontogr/agentic-med-diag)
+[![CI](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-med-diag/ci.yml?branch=main&label=CI&logo=githubactions)](https://github.com/ontogr/agentic-med-diag/actions/workflows/ci.yml)
+[![Ruff](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-med-diag/ci.yml?branch=main&label=Ruff&logo=ruff)](https://github.com/ontogr/agentic-med-diag/actions/workflows/ci.yml)
+[![ty](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-med-diag/ci.yml?branch=main&label=ty&logo=python)](https://github.com/ontogr/agentic-med-diag/actions/workflows/ci.yml)
+[![Bandit](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-med-diag/ci.yml?branch=main&label=Bandit&logo=owasp)](https://github.com/ontogr/agentic-med-diag/actions/workflows/ci.yml)
+[![Unit tests](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-med-diag/ci.yml?branch=main&label=unit%20tests&logo=pytest&job=Tests)](https://github.com/ontogr/agentic-med-diag/actions/workflows/ci.yml)
+[![Integration tests](https://img.shields.io/github/actions/workflow/status/ontogr/agentic-med-diag/ci.yml?branch=main&label=integration%20tests&logo=pytest&job=Integration+Tests)](https://github.com/ontogr/agentic-med-diag/actions/workflows/ci.yml)
+[![Codecov](https://codecov.io/github/ontogr/agentic-med-diag/graph/badge.svg?token=83MYFZ3UPA)](https://codecov.io/github/ontogr/agentic-med-diag)
+[![License](https://img.shields.io/github/license/ontogr/agentic-med-diag?color=green)](https://github.com/ontogr/agentic-med-diag/blob/main/LICENSE)
 
 </div>
 
@@ -245,7 +245,7 @@ We provide streaming loaders for medical text corpora.
 The project uses [uv](https://github.com/astral-sh/uv) for dependency management.
 
 ```bash
-git clone https://github.com/avnlp/agentic-med-diag.git
+git clone https://github.com/ontogr/agentic-med-diag.git
 cd agentic-med-diag
 pip install uv && uv sync
 ```
