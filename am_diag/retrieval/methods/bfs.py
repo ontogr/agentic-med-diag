@@ -48,9 +48,14 @@ async def bfs_expand(
     where_clause, where_params = filters.to_cypher_where("n") if filters else ("", {})
     params.update(where_params)
 
-    # Inject WHERE clause before RETURN
+    # The template already has a WHERE clause, so filter conditions must join
+    # it; parentheses keep multi-label OR groups from binding to the AND.
     if where_clause:
-        cypher = cypher.replace("RETURN n.id", f"{where_clause}\nRETURN n.id")
+        conditions = where_clause.removeprefix("WHERE ")
+        cypher = cypher.replace(
+            "WHERE hop <= $depth",
+            f"WHERE hop <= $depth AND ({conditions})",
+        )
 
     rows = await graph_store.execute_query(cypher, params)
 
