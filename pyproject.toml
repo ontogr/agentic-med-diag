@@ -53,6 +53,9 @@ dependencies = [
   "lxml>=5.3.0",
 ]
 
+[project.optional-dependencies]
+falkordb = ["falkordb>=1.7,<2"]
+
 [project.scripts]
 am-diag = "am_diag.cli.main:main"
 

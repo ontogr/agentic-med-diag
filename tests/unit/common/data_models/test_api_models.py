@@ -34,6 +34,38 @@ class TestConnections:
         """Verify database defaults to neo4j."""
         conn = GraphConnection(uri="bolt://h:7687", user_env="U", password_env="P")
         assert conn.database == "neo4j"
+        assert conn.backend == "neo4j"
+
+    @pytest.mark.parametrize("scheme", ["redis", "rediss"])
+    def test_falkordb_allows_no_credentials(self, scheme):
+        """Allow unauthenticated Redis connections in persisted records."""
+        conn = GraphConnection(backend="falkordb", uri=f"{scheme}://h:6379")
+        assert conn.user_env is None
+        assert conn.password_env is None
+
+    @pytest.mark.parametrize(
+        ("backend", "uri"), [("neo4j", "redis://h"), ("falkordb", "bolt://h")]
+    )
+    def test_backend_rejects_wrong_uri(self, backend, uri):
+        """Reject a connection whose URI belongs to the other backend."""
+        with pytest.raises(ValueError, match="backend cannot use"):
+            GraphConnection(backend=backend, uri=uri, user_env="U", password_env="P")
+
+    def test_neo4j_requires_credential_refs(self):
+        """Keep credential env references mandatory for Neo4j."""
+        with pytest.raises(ValueError, match="requires user_env and password_env"):
+            GraphConnection(uri="bolt://h")
+
+    @pytest.mark.parametrize("userinfo", ["user:secret", "user", ":secret", ""])
+    def test_falkordb_rejects_persisted_inline_credentials(self, userinfo):
+        """Reject userinfo when loading a serialized connection descriptor."""
+        payload = (
+            '{"backend":"falkordb","uri":"rediss://'
+            + userinfo
+            + '@host:6379","user_env":"U","password_env":"P"}'
+        )
+        with pytest.raises(ValueError, match="use user_env and password_env instead"):
+            GraphConnection.model_validate_json(payload)
 
     def test_vector_connection_default_collections(self):
         """Verify the four per-kind collection names default correctly."""

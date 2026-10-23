@@ -1,4 +1,4 @@
-"""Whole-graph finalization (GDS community detection).
+"""Whole-graph finalization with backend-aware community detection.
 
 Structured-graph and corpus ingestion now run through the durable job engine in
 ``am_diag.ingestion.jobs``. ``finalize_graph`` remains the single place that runs
@@ -31,7 +31,7 @@ async def finalize_graph(graph_store: GraphStore, config: Any | None = None) -> 
     union gets correct community structure.
 
     Args:
-        graph_store: Graph database client (must expose Neo4j GDS).
+        graph_store: Graph database client with declared algorithm capabilities.
         config: Optional ``CommunityDetectionConfig`` (seed, etc.).
 
     Returns:
@@ -40,9 +40,14 @@ async def finalize_graph(graph_store: GraphStore, config: Any | None = None) -> 
     from am_diag.graph_construction.community.gds import (  # noqa: PLC0415
         GdsCommunityDetector,
     )
+    from am_diag.graph_construction.community.leiden import (  # noqa: PLC0415
+        LeidenCommunityDetector,
+    )
 
-    detector = GdsCommunityDetector(graph_store, config)
-    communities = await detector.detect_all()
+    if graph_store.capabilities.gds_leiden:
+        communities = await GdsCommunityDetector(graph_store, config).detect_all()
+    else:
+        communities = await LeidenCommunityDetector(config).detect_all(graph_store)
     await graph_store.execute_query(load("community/delete_communities"))
     await graph_store.upsert_communities(communities)
     await graph_store.link_in_community(communities)

@@ -28,7 +28,7 @@ async def bfs_expand(
     Args:
         graph_store: Graph database client.
         seed_ids: Entity UUID strings to start traversal from.
-        depth: Max hop count (default 2).
+        depth: Max hop count, clamped to 1 through 5 (default 2).
         limit: Max nodes to return (caps fan-out for medical supernodes).
         filters: Optional search filters.
 
@@ -38,10 +38,11 @@ async def bfs_expand(
     if not seed_ids:
         return []
 
-    cypher = load("retrieval/bfs_expand")
+    bounded_depth = min(max(1, int(depth)), 5)
+    cypher = load("retrieval/bfs_expand").replace("${depth}", str(bounded_depth))
     params: dict[str, Any] = {
         "seed_ids": seed_ids,
-        "depth": depth,
+        "depth": bounded_depth,
         "limit": limit,
     }
     where_clause, where_params = filters.to_cypher_where("n") if filters else ("", {})

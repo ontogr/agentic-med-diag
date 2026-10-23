@@ -8,8 +8,9 @@ connection pool, so a serialized ``GraphRecord`` is safe to persist to disk.
 from __future__ import annotations
 
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 CollectionKind = Literal["entity", "relation", "chunk", "community"]
@@ -26,22 +27,45 @@ def _default_collections() -> dict[CollectionKind, str]:
 
 
 class GraphConnection(BaseModel):
-    """Neo4j connection metadata for one Graph.
+    """Graph backend connection metadata for one Graph.
 
     Secrets are env-var names, resolved at connect time — never the secret
     values themselves.
 
     Attributes:
-        uri: Bolt URI, for example ``bolt://host:7687``.
+        backend: Graph database backend. Defaults to Neo4j for old records.
+        uri: Neo4j connection URI or a Redis URI for FalkorDB.
         user_env: Name of the env var holding the username.
         password_env: Name of the env var holding the password.
-        database: Target database name. Defaults to ``"neo4j"``.
+        database: Target database or FalkorDB graph name.
     """
 
     uri: str
-    user_env: str
-    password_env: str
+    backend: Literal["neo4j", "falkordb"] = "neo4j"
+    user_env: str | None = None
+    password_env: str | None = None
     database: str = "neo4j"
+
+    @model_validator(mode="after")
+    def _validate_backend(self) -> GraphConnection:
+        """Reject URI/backend mismatches and missing Neo4j credential refs."""
+        parsed = urlsplit(self.uri)
+        scheme = parsed.scheme
+        schemes = (
+            {"redis", "rediss"}
+            if self.backend == "falkordb"
+            else {"bolt", "bolt+s", "bolt+ssc", "neo4j", "neo4j+s", "neo4j+ssc"}
+        )
+        if scheme not in schemes:
+            raise ValueError(f"{self.backend} backend cannot use a {scheme}:// uri")
+        if self.backend == "falkordb" and "@" in parsed.netloc:
+            raise ValueError(
+                "FalkorDB connection URI cannot contain inline credentials; "
+                "use user_env and password_env instead"
+            )
+        if self.backend == "neo4j" and (not self.user_env or not self.password_env):
+            raise ValueError("neo4j backend requires user_env and password_env")
+        return self
 
 
 class VectorConnection(BaseModel):

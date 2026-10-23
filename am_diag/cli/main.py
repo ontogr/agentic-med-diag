@@ -104,10 +104,17 @@ def _add_graphs(sub: Any) -> None:
     g_sub = graphs.add_subparsers(dest="action", required=True)
     g_create = g_sub.add_parser("create", help="Register a graph")
     g_create.add_argument("--graph-id", required=True)
-    g_create.add_argument("--neo4j-uri", required=True)
+    g_create.add_argument(
+        "--graph-backend", choices=["neo4j", "falkordb"], default="neo4j"
+    )
+    g_create.add_argument("--neo4j-uri")
     g_create.add_argument("--neo4j-user-env", default="NEO4J_USER")
     g_create.add_argument("--neo4j-password-env", default="NEO4J_PASSWORD")
     g_create.add_argument("--neo4j-database", default="neo4j")
+    g_create.add_argument("--falkordb-url")
+    g_create.add_argument("--falkordb-user-env")
+    g_create.add_argument("--falkordb-password-env")
+    g_create.add_argument("--falkordb-graph", default="am_diag")
     g_create.add_argument(
         "--vector-backend", choices=["qdrant", "weaviate"], default="qdrant"
     )
@@ -221,14 +228,38 @@ async def _run(args: argparse.Namespace) -> None:
 async def _handle_graphs(client: Workspace, args: argparse.Namespace) -> None:
     """Handle the ``graphs`` subcommands."""
     if args.action == "create":
-        rec = await client.graphs.create(
-            args.graph_id,
-            neo4j=GraphConnection(
+        if args.graph_backend == "falkordb":
+            if not args.falkordb_url:
+                raise SystemExit("--falkordb-url is required for the falkordb backend")
+            if args.neo4j_uri:
+                raise SystemExit("--neo4j-uri cannot be used with the falkordb backend")
+            connection = GraphConnection(
+                backend="falkordb",
+                uri=args.falkordb_url,
+                user_env=args.falkordb_user_env,
+                password_env=args.falkordb_password_env,
+                database=args.falkordb_graph,
+            )
+        else:
+            if not args.neo4j_uri:
+                raise SystemExit("--neo4j-uri is required for the neo4j backend")
+            if (
+                args.falkordb_url
+                or args.falkordb_user_env
+                or args.falkordb_password_env
+            ):
+                raise SystemExit(
+                    "FalkorDB connection flags require --graph-backend falkordb"
+                )
+            connection = GraphConnection(
                 uri=args.neo4j_uri,
                 user_env=args.neo4j_user_env,
                 password_env=args.neo4j_password_env,
                 database=args.neo4j_database,
-            ),
+            )
+        rec = await client.graphs.create(
+            args.graph_id,
+            neo4j=connection,
             vector=VectorConnection(
                 backend=args.vector_backend,
                 url_env=args.vector_url_env or f"{args.vector_backend.upper()}_URL",

@@ -141,6 +141,16 @@ class TestUpsertEntitiesGroupsByLabel:
         await client_obj.upsert_entities([])
         mock_driver.execute_query.assert_not_called()
 
+    @pytest.mark.parametrize("empty_id", [None, ""])
+    async def test_entities_without_ids_are_skipped(self, client, empty_id):
+        """Unvalidated records cannot produce null-keyed MERGE operations."""
+        client_obj, mock_driver = client
+        entity = _make_entity("aspirin", "Drug").model_copy(update={"id": empty_id})
+
+        await client_obj.upsert_entities([entity])
+
+        mock_driver.execute_query.assert_not_called()
+
 
 class TestUpsertRelationsSkipsUnresolved:
     """Tests for Neo4jClient.upsert_relations — unresolved endpoints are skipped."""

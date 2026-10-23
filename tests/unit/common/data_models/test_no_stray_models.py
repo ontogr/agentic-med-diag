@@ -37,6 +37,8 @@ _ALLOWED_PATTERNS: list[re.Pattern] = [
     re.compile(r"agents/models\.py$"),
     # Reranker result types (framework-required transport types)
     re.compile(r"vector/reranking/base\.py$"),
+    # Backend feature flags describe the storage contract, not domain data.
+    re.compile(r"db/graph/base\.py$"),
     # Retrieval config and filter types (configuration, not domain models)
     re.compile(r"retrieval/filters\.py$"),
     re.compile(r"retrieval/config\.py$"),

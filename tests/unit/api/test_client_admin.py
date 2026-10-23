@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from am_diag.api.admin import GraphAdmin
 from am_diag.api.errors import ConnectionError as WorkspaceConnectionError
 from am_diag.api.errors import GraphNotFoundError, RegistryError
 from am_diag.api.graph import Graph
@@ -128,6 +129,22 @@ class TestGraphAdmin:
         """Verify delete(drop_data=True) validates the record before touching data."""
         with pytest.raises(GraphNotFoundError):
             await client.graphs.delete("ghost", drop_data=True)
+
+    async def test_drop_data_uses_backend_wipe(self):
+        """Graph deletion delegates data removal to the selected backend."""
+        registry = MagicMock()
+        record = MagicMock(graph_id="med", collections={})
+        registry.get_graph.return_value = record
+        registry.list_graphs.return_value = [record]
+        graph_store = SimpleNamespace(wipe=AsyncMock())
+        graph = SimpleNamespace(graph_store=graph_store, collections={})
+        pool = MagicMock(evict_graph=AsyncMock())
+        pool.graph.return_value = graph
+
+        await GraphAdmin(registry, pool).delete("med", drop_data=True)
+
+        graph_store.wipe.assert_awaited_once_with()
+        registry.remove_graph.assert_called_once_with("med")
 
     async def test_drop_data_refuses_shared_collections(
         self, client, mock_driver, monkeypatch

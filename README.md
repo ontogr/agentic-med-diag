@@ -27,7 +27,7 @@ This repository implements an Agentic GraphRAG system for Medical Diagnosis. It 
 - **Four vector collections** (entity, relation, chunk, community) for complementary semantic search.
 - **Layered retrieval** combining atomic search methods, pluggable rerankers, and data-only recipes, fused with Reciprocal Rank Fusion or a cross-encoder.
 - **Agentic plan–research–verify loop** that decomposes the question, runs parallel researchers over retrieval tools, and gates synthesis on a deterministic sufficiency check.
-- **Pluggable storage** with Neo4j for the graph and Qdrant or Weaviate for vectors.
+- **Pluggable storage** with Neo4j or FalkorDB for the graph and Qdrant or Weaviate for vectors.
 
 The system is built using:  
 
@@ -251,6 +251,34 @@ pip install uv && uv sync
 ```
 
 ## Usage
+
+### Graph backends
+
+Neo4j remains the default. Existing connection records and `--neo4j-*` options keep their behavior. FalkorDB uses the same graph store interface for ingestion, graph retrieval, and curation. Vector search still uses Qdrant or Weaviate.
+
+Install the optional FalkorDB driver and start the local database:
+
+```bash
+uv sync --extra falkordb
+docker compose up -d falkordb
+uv run am-diag graphs create --graph-id med-falkor \
+    --graph-backend falkordb \
+    --falkordb-url redis://localhost:6379 \
+    --falkordb-graph med \
+    --vector-url-env QDRANT_URL
+```
+
+The compose service and backend contract tests target FalkorDB 4.22.2. Use `rediss://` for TLS. For authenticated servers, pass `--falkordb-user-env FALKORDB_USERNAME` and `--falkordb-password-env FALKORDB_PASSWORD`. Connection records store environment variable names, not secret values. The graph name is a Redis key, not a Redis database number.
+
+Python callers can pass `FalkorDBSettings` or an existing `GraphStore` to `Graph.connect(neo4j=...)`. The parameter retains its name for compatibility. Settings support `FALKORDB_HOST`, `FALKORDB_PORT`, `FALKORDB_USERNAME`, `FALKORDB_PASSWORD`, `FALKORDB_GRAPH`, `FALKORDB_SSL`, `FALKORDB_QUERY_TIMEOUT_MS`, `FALKORDB_MAX_CONNECTIONS`, and `FALKORDB_BATCH_SIZE`.
+
+FalkorDB finalization runs hierarchical Leiden in Python instead of Neo4j GDS. It pages reads but holds the complete edge list in memory, so memory use grows with graph size. Entities without a non-self relation do not participate in Python community detection. FalkorDB has indexed `MERGE` writes but no client-side multi-statement transactions or uniqueness constraints. A failed ingestion can leave partial data; rerun the idempotent ingestion to recover. Wiping a FalkorDB graph removes its indexes, which the next write recreates.
+
+To run the backend contracts locally, set `FALKORDB_HOST` and `FALKORDB_PORT`. For Neo4j, set `NEO4J_TEST_URI`, `NEO4J_USER`, and `NEO4J_PASSWORD`. `NEO4J_TEST_URI` must identify a disposable instance because the tests delete all its data. Run the graph tests serially:
+
+```bash
+uv run pytest tests/integration/db/graph -n 0 -v
+```
 
 ### Environment Setup
 
