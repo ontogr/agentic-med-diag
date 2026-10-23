@@ -11,7 +11,8 @@ strings here.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, ClassVar
 
 from am_diag.common.data_models.chunk import Chunk
 from am_diag.common.data_models.community import Community
@@ -23,6 +24,17 @@ from am_diag.common.data_models.relation import Relation
 from am_diag.common.data_models.schema import GraphSchema
 
 
+@dataclass(frozen=True)
+class GraphCapabilities:
+    """Optional server features.
+
+    Attributes:
+        gds_leiden: The server supports GDS Leiden community detection.
+    """
+
+    gds_leiden: bool = False
+
+
 class GraphStore(ABC):
     """Abstract base for graph database clients (Neo4j, etc.).
 
@@ -32,6 +44,21 @@ class GraphStore(ABC):
     here so that concrete clients control the ordering guarantee
     (constraints → nodes → relationships).
     """
+
+    dialect: ClassVar[str]
+    capabilities: ClassVar[GraphCapabilities] = GraphCapabilities()
+
+    @abstractmethod
+    async def explain(self, cypher: str) -> None:
+        """Check a query without executing it.
+
+        Raises:
+            GraphQueryRejected: If the server refuses the query.
+        """
+
+    @abstractmethod
+    async def wipe(self) -> None:
+        """Remove all graph data and any backend-required schema objects."""
 
     @abstractmethod
     async def execute_query(
@@ -83,6 +110,9 @@ class GraphStore(ABC):
         Returns:
             An async context manager that commits on clean exit and rolls back
             on any exception.
+
+        Raises:
+            NotImplementedError: If the backend does not support transactions.
         """
 
     @abstractmethod

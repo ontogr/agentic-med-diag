@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from am_diag.api.errors import RegistryError
-from am_diag.common.cypher.loader import load
 from am_diag.common.data_models.connection import GraphConnection, VectorConnection
 from am_diag.common.data_models.graph_record import GraphRecord
 from am_diag.common.data_models.project import ProjectRecord
@@ -134,7 +133,7 @@ class GraphAdmin:
         if drop_data:
             self._reject_shared_collections(record)
             graph = self._pool.graph(graph_id)
-            await graph.graph_store.execute_query(load("admin/wipe_graph"), {})
+            await graph.graph_store.wipe()
             for collection in graph.collections.values():
                 await graph.vector_store.delete_collection(collection)
         self._registry.remove_graph(graph_id)

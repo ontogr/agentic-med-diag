@@ -137,6 +137,73 @@ class TestBuildSource:
 class TestGraphsCreate:
     """Tests for the vector connection built by ``graphs create``."""
 
+    async def test_falkordb_inline_credentials_are_not_registered(self):
+        """Reject URL secrets before they reach the registry writer."""
+        client = SimpleNamespace(graphs=SimpleNamespace(create=AsyncMock()))
+        args = build_parser().parse_args(
+            [
+                "graphs",
+                "create",
+                "--graph-id",
+                "g",
+                "--graph-backend",
+                "falkordb",
+                "--falkordb-url",
+                "rediss://user:secret@host:6379",
+            ]
+        )
+        with pytest.raises(ValueError, match="use user_env and password_env instead"):
+            await cli_main._handle_graphs(client, args)
+        client.graphs.create.assert_not_awaited()
+
+    async def test_falkordb_record_has_optional_credentials(self):
+        """Register FalkorDB without requiring Neo4j or Redis credentials."""
+        client = SimpleNamespace(
+            graphs=SimpleNamespace(
+                create=AsyncMock(return_value=SimpleNamespace(graph_id="g"))
+            )
+        )
+        args = build_parser().parse_args(
+            [
+                "graphs",
+                "create",
+                "--graph-id",
+                "g",
+                "--graph-backend",
+                "falkordb",
+                "--falkordb-url",
+                "rediss://h:6379",
+                "--falkordb-graph",
+                "medical",
+            ]
+        )
+        await cli_main._handle_graphs(client, args)
+        conn = client.graphs.create.await_args.kwargs["neo4j"]
+        assert conn.model_dump() == {
+            "backend": "falkordb",
+            "uri": "rediss://h:6379",
+            "database": "medical",
+            "user_env": None,
+            "password_env": None,
+        }
+
+    @pytest.mark.parametrize(
+        ("argv", "message"),
+        [
+            ([], "--neo4j-uri is required"),
+            (["--graph-backend", "falkordb"], "--falkordb-url is required"),
+            (
+                ["--neo4j-uri", "bolt://h", "--falkordb-url", "redis://h"],
+                "require --graph-backend falkordb",
+            ),
+        ],
+    )
+    async def test_missing_or_conflicting_backend_flags(self, argv, message):
+        """Reject incomplete backend configuration before creating a record."""
+        args = build_parser().parse_args(["graphs", "create", "--graph-id", "g", *argv])
+        with pytest.raises(SystemExit, match=message):
+            await cli_main._handle_graphs(SimpleNamespace(), args)
+
     @pytest.mark.parametrize(
         ("argv", "expected_env"),
         [

@@ -17,7 +17,7 @@ from am_diag.api.graph import Graph
 from am_diag.api.registry import Registry
 from am_diag.common.data_models.connection import VectorConnection
 from am_diag.common.data_models.graph_record import GraphRecord
-from am_diag.db.graph.settings import Neo4jSettings
+from am_diag.db.graph.settings import FalkorDBSettings, Neo4jSettings
 from am_diag.db.vector.settings import QdrantSettings, WeaviateSettings
 from am_diag.ingestion.cache import CacheManager, IngestionCache
 from am_diag.ingestion.jobs import IngestionJob
@@ -59,14 +59,22 @@ def build_graph(
     Raises:
         ConnectionError: If any referenced environment variable is unset.
     """
-    user = _require_env(record.neo4j.user_env)
-    password = _require_env(record.neo4j.password_env)
-    neo4j = Neo4jSettings(
-        uri=record.neo4j.uri,
-        user=user,
-        password=password,
-        database=record.neo4j.database,
-    )
+    conn = record.neo4j
+    credentials = {}
+    if conn.user_env is not None:
+        credentials["username"] = _require_env(conn.user_env)
+    if conn.password_env is not None:
+        credentials["password"] = _require_env(conn.password_env)
+    neo4j: Neo4jSettings | FalkorDBSettings
+    if conn.backend == "falkordb":
+        neo4j = FalkorDBSettings.from_url(conn.uri, graph=conn.database, **credentials)
+    else:
+        neo4j = Neo4jSettings(
+            uri=conn.uri,
+            user=credentials["username"],
+            password=credentials["password"],
+            database=conn.database,
+        )
     return Graph.connect(
         neo4j=neo4j,
         vector=_vector_settings(record.vector),

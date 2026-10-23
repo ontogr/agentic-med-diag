@@ -28,6 +28,8 @@ LAYERS: dict[str, int] = {
     "am_diag.common": 1,
     # Base contracts and shared settings (config models are not pipeline logic)
     "am_diag.db.graph.base": 2,
+    "am_diag.db.graph.errors": 2,
+    "am_diag.db.graph.cypher_store": 2,
     "am_diag.db.graph.settings": 2,
     "am_diag.db.vector.base": 2,
     "am_diag.db.vector.settings": 2,
@@ -40,6 +42,8 @@ LAYERS: dict[str, int] = {
     "am_diag.ingestion.embedding_config": 2,
     # Provider implementations
     "am_diag.db.graph.neo4j": 3,
+    "am_diag.db.graph.falkordb": 3,
+    "am_diag.db.graph.factory": 3,
     "am_diag.db.vector.qdrant": 3,
     "am_diag.db.vector.weaviate": 3,
     "am_diag.vector.embedding.openai": 3,

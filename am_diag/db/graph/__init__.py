@@ -1,6 +1,7 @@
 """Neo4j graph database client for graph population and querying."""
 
 from am_diag.db.graph.base import GraphStore
+from am_diag.db.graph.factory import create_graph_store
 from am_diag.db.graph.neo4j import (
     Neo4jClient,
     Neo4jTransaction,
@@ -19,11 +20,13 @@ from am_diag.db.graph.serialize import (
     report_record,
     to_params,
 )
-from am_diag.db.graph.settings import Neo4jSettings
+from am_diag.db.graph.settings import FalkorDBSettings, Neo4jSettings
 
 
 __all__ = [
     "GraphStore",
+    "FalkorDBSettings",
+    "create_graph_store",
     "Neo4jClient",
     "Neo4jTransaction",
     "Neo4jSettings",

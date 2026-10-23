@@ -59,7 +59,7 @@ class TestCypherLoader:
     def test_load_bfs_expand(self):
         """bfs_expand.cypher loads correctly."""
         text = load("retrieval/bfs_expand")
-        assert "RELATES_TO*1..$depth" in text
+        assert "RELATES_TO*1..${depth}" in text
         assert "$seed_ids" in text
 
     def test_load_caches_result(self):

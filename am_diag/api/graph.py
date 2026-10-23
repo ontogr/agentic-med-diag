@@ -32,8 +32,8 @@ from am_diag.common.data_models.schema import GraphSchema
 from am_diag.common.data_models.search import SearchResult
 from am_diag.common.schema import MEDICAL_GRAPHRAG_SCHEMA
 from am_diag.db.graph.base import GraphStore
-from am_diag.db.graph.neo4j import Neo4jClient
-from am_diag.db.graph.settings import Neo4jSettings
+from am_diag.db.graph.factory import create_graph_store
+from am_diag.db.graph.settings import FalkorDBSettings, Neo4jSettings
 from am_diag.db.vector.base import VectorStoreBase
 from am_diag.db.vector.qdrant import create_qdrant_store
 from am_diag.db.vector.settings import QdrantSettings, WeaviateSettings
@@ -92,7 +92,7 @@ def _retrieval_config(collections: dict[str, str]) -> RetrievalConfig:
     )
 
 
-def _derive_graph_id(neo4j: GraphStore | Neo4jSettings) -> str:
+def _derive_graph_id(neo4j: GraphStore | Neo4jSettings | FalkorDBSettings) -> str:
     """Derive a stable graph id from the backend identity, else a uuid.
 
     Deriving from the Neo4j URI + database means reconnecting to the same backend
@@ -102,6 +102,10 @@ def _derive_graph_id(neo4j: GraphStore | Neo4jSettings) -> str:
         digest = hashlib.sha256(f"{neo4j.uri}|{neo4j.database}".encode()).hexdigest()[
             :12
         ]
+        return f"auto-{digest}"
+    if isinstance(neo4j, FalkorDBSettings):
+        identity = f"falkordb|{neo4j.host}|{neo4j.port}|{neo4j.ssl}|{neo4j.graph}"
+        digest = hashlib.sha256(identity.encode()).hexdigest()[:12]
         return f"auto-{digest}"
     return uuid4().hex
 
@@ -149,7 +153,7 @@ class Graph:
     def connect(
         cls,
         *,
-        neo4j: GraphStore | Neo4jSettings,
+        neo4j: GraphStore | Neo4jSettings | FalkorDBSettings,
         vector: VectorStoreBase | QdrantSettings | WeaviateSettings,
         schema: GraphSchema = MEDICAL_GRAPHRAG_SCHEMA,
         embedder: Embedder | None = None,
@@ -167,7 +171,7 @@ class Graph:
         connections close on exit.
 
         Args:
-            neo4j: A live ``GraphStore`` or a ``Neo4jSettings``.
+            neo4j: A live ``GraphStore``, ``Neo4jSettings`` or ``FalkorDBSettings``.
             vector: A live ``VectorStoreBase`` or a Qdrant/Weaviate settings.
             schema: The graph schema. Defaults to the medical GraphRAG schema.
             embedder: Query/ingest embedder. Defaults to the ST default model.
@@ -183,7 +187,9 @@ class Graph:
             job_registry: Shared in-session job registry. Managed use injects the
                 Workspace's so ``jobs.resume`` can find live jobs.
         """
-        graph_store = neo4j if isinstance(neo4j, GraphStore) else Neo4jClient(neo4j)
+        graph_store = (
+            neo4j if isinstance(neo4j, GraphStore) else create_graph_store(neo4j)
+        )
         vector_store = _build_vector_store(vector)
         embedder = embedder or SentenceTransformersEmbedder()
         collections = collections or dict(_DEFAULT_COLLECTIONS)

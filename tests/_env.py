@@ -22,15 +22,22 @@ GATING_VARS: frozenset[str] = frozenset(
         "NEO4J_URI",
         "NEO4J_USER",
         "NEO4J_PASSWORD",
+        "NEO4J_TEST_URI",
+        "FALKORDB_HOST",
         "QDRANT_URL",
         "WEAVIATE_URL",
     }
 )
 
 
+def get_config(name: str) -> str | None:
+    """Value from process env or repo-root .env, without mutating env."""
+    return os.environ.get(name) or _DOTENV.get(name)
+
+
 def is_configured(name: str) -> bool:
     """True if set in process env or repo-root .env (without mutating env)."""
-    return bool(os.environ.get(name) or _DOTENV.get(name))
+    return bool(get_config(name))
 
 
 def required_config_for(path: str, name: str) -> list[str]:
@@ -51,6 +58,12 @@ def required_config_for(path: str, name: str) -> list[str]:
     """
     if "/loaders/" in path:
         return []  # public HF datasets; HF_TOKEN optional, never required
+    if "/db/graph/" in path and name in {
+        "test_contract.py",
+        "test_cypher_portability.py",
+    }:
+        # Each backend fixture gates its own configuration independently.
+        return []
     if "/db/graph/" in path:
         return ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD"]
     if "/db/vector/" in path and "qdrant" in name:

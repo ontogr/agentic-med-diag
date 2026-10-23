@@ -4,7 +4,7 @@
 // $limit: max nodes to return (caps fan-out for medical supernodes).
 UNWIND $seed_ids AS sid
 MATCH (s:Entity {id: sid})
-MATCH path = (s)-[:RELATES_TO*1..$depth]->(n:Entity)
+MATCH path = (s)-[:RELATES_TO*1..${depth}]->(n:Entity)
 WITH n, min(length(path)) AS hop,
      collect(DISTINCT last(relationships(path)).type)[0..3] AS rels
 WHERE hop <= $depth

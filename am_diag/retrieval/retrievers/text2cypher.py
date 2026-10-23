@@ -8,18 +8,16 @@ from __future__ import annotations
 
 import logging
 
-from neo4j.exceptions import Neo4jError
 from pydantic_core import to_jsonable_python
 
 from am_diag.common.data_models.schema import GraphSchema
 from am_diag.common.data_models.search import CypherRow, SearchResult
 from am_diag.db.graph.base import GraphStore
+from am_diag.db.graph.errors import GraphWriteRejected
 from am_diag.retrieval.config import RetrievalConfig
 
 
 logger = logging.getLogger(__name__)
-
-_WRITE_REJECTION_CODES = frozenset({"Neo.ClientError.Statement.AccessMode"})
 
 
 class Text2CypherRetriever:
@@ -86,7 +84,7 @@ class Text2CypherRetriever:
 
             # EXPLAIN checks syntax and the query plan before anything runs.
             try:
-                await self._graph.execute_query(f"EXPLAIN {cypher}", read_only=True)
+                await self._graph.explain(cypher)
                 cypher_result = cypher
                 break
             except Exception as exc:
@@ -105,9 +103,7 @@ class Text2CypherRetriever:
         # reject any write clause the model produced.
         try:
             rows = await self._graph.execute_query(cypher_result, read_only=True)
-        except Neo4jError as exc:
-            if exc.code not in _WRITE_REJECTION_CODES:
-                raise
+        except GraphWriteRejected as exc:
             logger.error("text2cypher: write query rejected: %s", exc)
             return []
         return [
