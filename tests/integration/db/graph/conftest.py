@@ -6,7 +6,6 @@ are deleted. FalkorDB tests create and delete a unique named graph per test.
 
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
@@ -24,7 +23,7 @@ from am_diag.common.data_models.schema import EntityType, GraphSchema
 from am_diag.db.graph.base import GraphStore
 from am_diag.db.graph.factory import create_graph_store
 from am_diag.db.graph.settings import FalkorDBSettings, Neo4jSettings
-from tests._env import is_configured
+from tests._env import get_config, is_configured
 
 
 @pytest.fixture(params=["neo4j", "falkordb"])
@@ -34,10 +33,10 @@ async def graph_store(request: pytest.FixtureRequest) -> AsyncIterator[GraphStor
         if not is_configured("NEO4J_TEST_URI"):
             pytest.skip("NEO4J_TEST_URI must name a disposable Neo4j instance")
         settings = Neo4jSettings(
-            uri=os.environ["NEO4J_TEST_URI"],
-            user=os.environ.get("NEO4J_USER", "neo4j"),
-            password=os.environ.get("NEO4J_PASSWORD", "password"),
-            database=os.environ.get("NEO4J_TEST_DATABASE", "neo4j"),
+            uri=get_config("NEO4J_TEST_URI") or "",
+            user=get_config("NEO4J_USER") or "neo4j",
+            password=get_config("NEO4J_PASSWORD") or "password",
+            database=get_config("NEO4J_TEST_DATABASE") or "neo4j",
         )
     else:
         if not is_configured("FALKORDB_HOST"):

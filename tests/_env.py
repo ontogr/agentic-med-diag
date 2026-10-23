@@ -30,9 +30,14 @@ GATING_VARS: frozenset[str] = frozenset(
 )
 
 
+def get_config(name: str) -> str | None:
+    """Value from process env or repo-root .env, without mutating env."""
+    return os.environ.get(name) or _DOTENV.get(name)
+
+
 def is_configured(name: str) -> bool:
     """True if set in process env or repo-root .env (without mutating env)."""
-    return bool(os.environ.get(name) or _DOTENV.get(name))
+    return bool(get_config(name))
 
 
 def required_config_for(path: str, name: str) -> list[str]:
