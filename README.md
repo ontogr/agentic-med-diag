@@ -124,7 +124,7 @@ The schema fixes the ontology that a graph is tied to. When the graph is created
 
 ## Architecture
 
-The system has two data flows: ingestion (text and pre-built graphs into a knowledge graph and vector store) and retrieval using an agent. The diagram at the top of this page shows both flows.
+The system has two data flows: ingestion (text and pre-built graphs into a knowledge graph and vector store) and retrieval using an agent.
 
 ## Ingestion Pipeline
 
