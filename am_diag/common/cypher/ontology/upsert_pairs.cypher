@@ -1,4 +1,3 @@
-// Upsert allowed (head, type, tail) triples as ONTO_PAIR edges.
 // Entity types must come first; a pair with an undeclared endpoint matches nothing.
 UNWIND $records AS p
 MATCH (h:`__OntoEntity` {label: p.head})
