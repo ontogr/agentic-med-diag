@@ -8,6 +8,38 @@ from typing import Any
 from pydantic import BaseModel, Field, computed_field
 
 
+@dataclass(frozen=True)
+class RetrievalQuestion:
+    """A question with the ids of the items that answer it."""
+
+    question_id: str
+    text: str
+    gold_ids: frozenset[str]
+
+
+@dataclass(frozen=True)
+class QuestionResult:
+    """Outcome of one recipe run on one question."""
+
+    recipe: str
+    question_id: str
+    repeat: int
+    hit_at_k: bool
+    reciprocal_rank: float
+    latency_ms: float
+
+
+@dataclass(frozen=True)
+class RecipeSummary:
+    """Scores for one recipe, averaged over its questions and repeats."""
+
+    recipe: str
+    recall_at_k: float
+    mean_reciprocal_rank: float
+    latency_p50_ms: float
+    latency_p95_ms: float
+
+
 class MetricResult(BaseModel):
     """Single metric output for one sample."""
 

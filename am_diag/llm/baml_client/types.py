@@ -47,7 +47,7 @@ class RelationType(str, Enum):
     pass
 
 # #########################################################################
-# Generated classes (17)
+# Generated classes (18)
 # #########################################################################
 
 class AnswerEquivalenceJudgement(BaseModel):
@@ -106,6 +106,10 @@ class MapKeyPoint(BaseModel):
 
 class MapResponse(BaseModel):
     points: typing.List["MapKeyPoint"]
+
+class QueryKeywords(BaseModel):
+    entities: typing.List[str] = Field(description='Clinical entities named in the question: diseases, drugs, genes, phenotypes, anatomy, pathways, exposures. Include common abbreviations.')
+    terms: typing.List[str] = Field(description='Other important content words from the question, at most 5')
 
 class ReasoningMatch(BaseModel):
     reason_index: int
