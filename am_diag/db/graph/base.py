@@ -11,6 +11,7 @@ strings here.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -85,7 +86,7 @@ class GraphStore(ABC):
     async def execute_batch(
         self,
         query: str,
-        records: list[dict[str, Any]],
+        records: Sequence[Mapping[str, Any]],
         batch_size: int = 500,
     ) -> None:
         """Execute ``query`` for each chunk of ``records``.
@@ -149,9 +150,9 @@ class GraphStore(ABC):
     async def register_ontology(self, schema: GraphSchema) -> None:
         """Store ``schema`` as the ontology mirror of this graph.
 
-        Registering a definition equal to the stored one is a no-op. ``mode`` is
+        Registering a definition equal to the stored one is accepted. ``mode`` is
         not part of that comparison, so an enforcement change alone does not
-        raise.
+        raise; it updates the stored mode.
 
         Args:
             schema: Ontology to store.

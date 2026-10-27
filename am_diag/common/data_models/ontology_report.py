@@ -12,7 +12,8 @@ class OntologyReport:
 
     Attributes:
         entities_kept: Entities that stay in the output, counted by label.
-        entities_violating: Entities whose label is not in the schema, counted by
+        entities_violating: Entities whose label is not an extractable entity type of
+            the schema, counted by
             label. They are dropped in ``strict`` mode and kept in ``warn`` mode.
         relations_kept: Relations that stay in the output, counted by type.
             Relations with swapped endpoints are included.

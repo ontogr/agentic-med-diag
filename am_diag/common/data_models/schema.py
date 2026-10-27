@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypedDict
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -72,6 +72,25 @@ class RelationType(DataPoint):
     metadata: MetaData = {"index_fields": ["glirel_label"], "identity_fields": ["type"]}
 
 
+class OntologyEntityRecord(TypedDict):
+    """Row that mirrors one entity type of a schema into a graph."""
+
+    label: str
+    description: str
+    gliner_label: str
+    extractable: bool
+
+
+class OntologyPairRecord(TypedDict):
+    """Row that mirrors one allowed ``(head, type, tail)`` triple into a graph."""
+
+    type: str
+    head: str
+    tail: str
+    glirel_label: str
+    extractable: bool
+
+
 @dataclass(frozen=True)
 class RelationGroup:
     """One relation type with every endpoint pair the schema allows for it.
@@ -121,6 +140,17 @@ class GraphSchema(BaseModel):
         shared = sorted({x for x in text_labels if text_labels.count(x) > 1})
         if shared:
             raise ValueError(f"extractable entity types share a gliner_label: {shared}")
+        types_by_glirel_label: dict[str, set[str]] = {}
+        for rt in self.extractable_relation_types():
+            if rt.glirel_label:
+                types_by_glirel_label.setdefault(rt.glirel_label, set()).add(rt.type)
+        conflicting = sorted(
+            label for label, types in types_by_glirel_label.items() if len(types) > 1
+        )
+        if conflicting:
+            raise ValueError(
+                f"extractable relation types share a glirel_label: {conflicting}"
+            )
         endpoints = {
             label
             for rt in self.relation_types
@@ -135,21 +165,34 @@ class GraphSchema(BaseModel):
 
     def gliner_labels(self) -> list[str]:
         """GLiNER label strings for all extractable entity types."""
-        return [et.gliner_label for et in self.entity_types if et.extractable]
+        return [et.gliner_label for et in self.extractable_entity_types()]
 
     def glirel_labels(self) -> list[str]:
-        """GLiREL label strings for extractable relation types with a label."""
-        return [rt.glirel_label for rt in self._offered_relation_types()]
+        """GLiREL label strings for extractable relation types with a label.
+
+        A label shared by several relation types, such as one type declared per
+        endpoint pair, appears once, at its first position.
+        """
+        labels = (
+            rt.glirel_label
+            for rt in self.extractable_relation_types()
+            if rt.glirel_label
+        )
+        return list(dict.fromkeys(labels))
 
     @property
     def gliner_to_label(self) -> dict[str, str]:
         """Map GLiNER label → entity type label (for post-extraction normalization)."""
-        return {et.gliner_label: et.label for et in self.entity_types if et.extractable}
+        return {et.gliner_label: et.label for et in self.extractable_entity_types()}
 
     @property
     def glirel_to_type(self) -> dict[str, str]:
         """Map GLiREL label → relation type (for post-extraction normalization)."""
-        return {rt.glirel_label: rt.type for rt in self._offered_relation_types()}
+        return {
+            rt.glirel_label: rt.type
+            for rt in self.extractable_relation_types()
+            if rt.glirel_label
+        }
 
     def entity_type_names(self) -> set[str]:
         """Return the set of all entity type labels."""
@@ -158,6 +201,37 @@ class GraphSchema(BaseModel):
     def relation_type_names(self) -> set[str]:
         """Return the set of all relation type names."""
         return {rt.type for rt in self.relation_types}
+
+    def extractable_entity_types(self) -> list[EntityType]:
+        """Entity types that text extractors may produce."""
+        return [et for et in self.entity_types if et.extractable]
+
+    def extractable_relation_types(self) -> list[RelationType]:
+        """Relation types that text extractors may produce.
+
+        A type is left out when it is not extractable or when every head label or
+        every tail label belongs to a non-extractable entity type.
+        """
+        hidden = self._non_extractable_labels()
+
+        def all_hidden(labels: list[str]) -> bool:
+            return bool(labels) and set(labels) <= hidden
+
+        return [
+            rt
+            for rt in self.relation_types
+            if rt.extractable
+            and not all_hidden(rt.head_labels)
+            and not all_hidden(rt.tail_labels)
+        ]
+
+    def extractable_entity_type_names(self) -> set[str]:
+        """Return the labels of the extractable entity types."""
+        return {et.label for et in self.extractable_entity_types()}
+
+    def extractable_relation_type_names(self) -> set[str]:
+        """Return the names of the extractable relation types."""
+        return {rt.type for rt in self.extractable_relation_types()}
 
     def relation_groups(self) -> list[RelationGroup]:
         """Return one entry per distinct relation type, in declaration order."""
@@ -176,18 +250,19 @@ class GraphSchema(BaseModel):
     def entity_prompt_block(self) -> str:
         """Serialized extractable entity type list for LLM/BAML prompt injection."""
         return "\n".join(
-            f"- {et.label}: {et.description}"
-            for et in self.entity_types
-            if et.extractable
+            f"- {et.label}: {et.description}" for et in self.extractable_entity_types()
         )
 
     def relation_prompt_block(self) -> str:
         """Serialized extractable relation type list for LLM/BAML prompt injection."""
         lines = []
-        for rt in self._offered_relation_types(require_glirel_label=False):
+        for rt in self.extractable_relation_types():
             heads = ", ".join(rt.head_labels)
             tails = ", ".join(rt.tail_labels)
-            lines.append(f"- {rt.type} [{heads} → {tails}]: {rt.glirel_label}")
+            line = f"- {rt.type} [{heads} → {tails}]: {rt.glirel_label}"
+            if rt.description:
+                line += f" - {rt.description}"
+            lines.append(line)
         return "\n".join(lines)
 
     def as_text(self) -> str:
@@ -205,20 +280,34 @@ class GraphSchema(BaseModel):
         )
         for group in self.relation_groups():
             pairs = ", ".join(f"{head}->{tail}" for head, tail in sorted(group.pairs))
-            lines.append(f"  type '{group.type}': {pairs}")
+            line = f"  type '{group.type}': {pairs}"
+            if group.description:
+                line += f" - {group.description}"
+            lines.append(line)
         lines.append(f"Valid type values: {sorted(self.relation_type_names())}")
         return "\n".join(lines)
 
-    def allowed_pairs(self) -> set[tuple[str, str, str]]:
-        """All ``(head_label, relation_type, tail_label)`` triples.
+    def allowed_pairs(
+        self, *, extractable_only: bool = False
+    ) -> set[tuple[str, str, str]]:
+        """All ``(head_label, relation_type, tail_label)`` triples this schema permits.
 
-        permitted by this schema.
+        Args:
+            extractable_only: Keep only triples that text extractors may produce:
+                extractable relation types between extractable entity types.
         """
+        hidden = self._non_extractable_labels() if extractable_only else set()
+        relation_types = (
+            self.extractable_relation_types()
+            if extractable_only
+            else self.relation_types
+        )
         return {
             (h, rt.type, t)
-            for rt in self.relation_types
+            for rt in relation_types
             for h in rt.head_labels
             for t in rt.tail_labels
+            if h not in hidden and t not in hidden
         }
 
     def fingerprint(self, *, include_mode: bool = True) -> str:
@@ -268,25 +357,6 @@ class GraphSchema(BaseModel):
         payload = json.dumps(definition, sort_keys=True)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
-    def _offered_relation_types(
-        self, *, require_glirel_label: bool = True
-    ) -> list[RelationType]:
-        """Relation types a text extractor may produce.
-
-        A type is skipped when it is not extractable, when every head label or
-        every tail label belongs to a non-extractable entity type, or, if
-        ``require_glirel_label`` is set, when it has no GLiREL label.
-        """
-        hidden = {et.label for et in self.entity_types if not et.extractable}
-
-        def all_hidden(labels: list[str]) -> bool:
-            return bool(labels) and set(labels) <= hidden
-
-        return [
-            rt
-            for rt in self.relation_types
-            if rt.extractable
-            and not (require_glirel_label and not rt.glirel_label)
-            and not all_hidden(rt.head_labels)
-            and not all_hidden(rt.tail_labels)
-        ]
+    def _non_extractable_labels(self) -> set[str]:
+        """Labels of entity types that text extractors must not produce."""
+        return {et.label for et in self.entity_types if not et.extractable}

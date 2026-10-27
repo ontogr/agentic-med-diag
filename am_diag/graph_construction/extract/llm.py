@@ -42,7 +42,7 @@ def _flatten_kg(
     entities: list[Entity] = []
     relations: list[Relation] = []
 
-    valid_labels = schema.entity_type_names()
+    valid_labels = schema.extractable_entity_type_names()
     for ent in getattr(kg, "entities", []):
         label = _entity_type_str(ent.entity_type)
         if label not in valid_labels:
@@ -60,7 +60,7 @@ def _flatten_kg(
             ),
         )
 
-    valid_types = schema.relation_type_names()
+    valid_types = schema.extractable_relation_type_names()
     valid_entity_names: set[str] = {e.name for e in entities}
     for rel in getattr(kg, "relations", []):
         rel_type = _relation_type_str(rel.relation_type)

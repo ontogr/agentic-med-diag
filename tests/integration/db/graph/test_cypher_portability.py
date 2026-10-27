@@ -89,6 +89,7 @@ _WRITE_CASES = {
     "ontology/upsert_entity_types",
     "ontology/upsert_pairs",
     "ontology/upsert_meta",
+    "ontology/clear_mirror",
 }
 _NEO4J_ONLY = {
     "schema/constraints",

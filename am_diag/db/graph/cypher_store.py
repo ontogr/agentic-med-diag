@@ -7,6 +7,8 @@ as entity type labels). No Cypher string literals appear in this file.
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from am_diag.common.cypher.loader import load, render
@@ -51,10 +53,14 @@ def _reject_reserved_keys(props: dict[str, Any]) -> None:
 class CypherGraphStore(GraphStore):
     """Shared ingest and administration operations over a Cypher transport."""
 
+    def __init__(self) -> None:
+        """Create the lock that serializes ontology registration."""
+        self._ontology_lock = asyncio.Lock()
+
     async def execute_batch(
         self,
         query: str,
-        records: list[dict[str, Any]],
+        records: Sequence[Mapping[str, Any]],
         batch_size: int = 500,
     ) -> None:
         """Execute ``query`` for each ``batch_size`` slice of ``records``.
@@ -268,27 +274,42 @@ class CypherGraphStore(GraphStore):
     async def register_ontology(self, schema: GraphSchema) -> None:
         """Store ``schema`` as the graph's ontology, or confirm it is already stored.
 
+        A definition equal to the stored one is accepted. If only its ``mode``
+        differs, the stored mode is updated. Registrations on one store instance
+        run one at a time; concurrent registrations from separate processes are
+        not coordinated.
+
         Args:
             schema: Ontology to mirror into the graph.
 
         Raises:
             OntologyVersionMismatch: If the graph holds a different ontology.
         """
-        stored = await self.load_ontology()
-        if stored is not None:
-            stored_fingerprint = stored.fingerprint(include_mode=False)
-            if stored_fingerprint == schema.fingerprint(include_mode=False):
+        async with self._ontology_lock:
+            stored = await self.load_ontology()
+            if stored is not None:
+                stored_fingerprint = stored.fingerprint(include_mode=False)
+                if stored_fingerprint != schema.fingerprint(include_mode=False):
+                    raise OntologyVersionMismatch(stored.version, schema.version)
+                if stored.mode != schema.mode:
+                    await self._write_ontology_meta(schema)
                 return
-            raise OntologyVersionMismatch(stored.version, schema.version)
-        await self.execute_batch(
-            load("ontology/upsert_entity_types"), ontology_entity_records(schema)
-        )
-        await self.execute_batch(
-            load("ontology/upsert_pairs"), ontology_pair_records(schema)
-        )
-        # FalkorDB has no client transactions. Writing the meta node last means a
-        # partial registration leaves nothing to match on load, so the next call
-        # repeats the idempotent merges above.
+            # Without a meta node, any entity or pair records come from an
+            # interrupted registration and may describe another schema.
+            await self.execute_query(load("ontology/clear_mirror"), {})
+            await self.execute_batch(
+                load("ontology/upsert_entity_types"), ontology_entity_records(schema)
+            )
+            await self.execute_batch(
+                load("ontology/upsert_pairs"), ontology_pair_records(schema)
+            )
+            # FalkorDB has no client transactions. Writing the meta node last means
+            # a partial registration leaves nothing to match on load, so the next
+            # call clears it and starts again.
+            await self._write_ontology_meta(schema)
+
+    async def _write_ontology_meta(self, schema: GraphSchema) -> None:
+        """Write the version, mode and full definition to the ontology meta node."""
         await self.execute_query(
             load("ontology/upsert_meta"),
             {

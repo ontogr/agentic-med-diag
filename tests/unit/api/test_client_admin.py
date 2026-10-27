@@ -18,6 +18,7 @@ from am_diag.api.errors import GraphNotFoundError, RegistryError
 from am_diag.api.graph import Graph
 from am_diag.api.workspace import Workspace
 from am_diag.common.data_models.connection import GraphConnection, VectorConnection
+from am_diag.common.data_models.schema import GraphSchema
 from am_diag.db.graph.base import GraphStore
 from am_diag.db.graph.errors import OntologyVersionMismatch
 from am_diag.db.graph.settings import Neo4jSettings
@@ -62,6 +63,14 @@ def _set_env(monkeypatch) -> None:
     monkeypatch.setenv("MED_NEO4J_PASSWORD", "secret")
     monkeypatch.setenv("MED_QDRANT_URL", "http://localhost:6333")
     monkeypatch.setenv("MED_QDRANT_KEY", "")
+
+
+def _ontology_store() -> MagicMock:
+    store = MagicMock(spec=GraphStore)
+    store.health_check = AsyncMock(return_value=True)
+    store.setup_schema = AsyncMock()
+    store.register_ontology = AsyncMock()
+    return store
 
 
 class TestGraphAdmin:
@@ -128,6 +137,53 @@ class TestGraphAdmin:
             await client.graphs.create("med", neo4j=_neo4j(), vector=_vector())
         assert await client.graphs.list() == []
         store.close.assert_awaited()
+
+    async def test_ontology_update_conflict_keeps_record_and_live_graph(
+        self, client, monkeypatch
+    ):
+        """Verify a conflicting schema update keeps the record and the live graph."""
+        _set_env(monkeypatch)
+        store = _ontology_store()
+        with patch("am_diag.api.graph.create_graph_store", return_value=store):
+            await client.graphs.create(
+                "med",
+                neo4j=_neo4j(),
+                vector=_vector(),
+                schema=GraphSchema(version="1.0"),
+            )
+        store.register_ontology.side_effect = OntologyVersionMismatch(
+            stored="1.0", requested="3.0"
+        )
+
+        with pytest.raises(OntologyVersionMismatch):
+            await client.graphs.update("med", schema=GraphSchema(version="3.0"))
+
+        assert (await client.graphs.get("med")).graph_schema.version == "1.0"
+        store.close.assert_not_awaited()
+        await client.aclose()
+
+    async def test_ontology_update_persists_schema_and_evicts_live_graph(
+        self, client, monkeypatch
+    ):
+        """Verify a schema update registers the schema, persists it, and evicts."""
+        _set_env(monkeypatch)
+        store = _ontology_store()
+        with patch("am_diag.api.graph.create_graph_store", return_value=store):
+            await client.graphs.create(
+                "med",
+                neo4j=_neo4j(),
+                vector=_vector(),
+                schema=GraphSchema(version="1.0"),
+            )
+        store.register_ontology.reset_mock()
+        replacement = GraphSchema(version="2.0")
+
+        await client.graphs.update("med", schema=replacement)
+
+        store.register_ontology.assert_awaited_once_with(replacement)
+        assert (await client.graphs.get("med")).graph_schema.version == "2.0"
+        store.close.assert_awaited_once()
+        await client.aclose()
 
     async def test_create_rejects_id_of_attached_graph(
         self, client, mock_driver, monkeypatch

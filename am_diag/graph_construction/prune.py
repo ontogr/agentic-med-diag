@@ -81,10 +81,15 @@ class OntologyPruner:
     """
 
     def __init__(self, schema: GraphSchema) -> None:
-        """Capture the mode and the entity and relation definitions of *schema*."""
+        """Capture the mode and the text-extractable definitions of *schema*.
+
+        Entity labels and relation triples that the schema marks as not
+        extractable count as violations, because only structured graph data may
+        supply them.
+        """
         self._mode = schema.mode
-        self._entity_labels = schema.entity_type_names()
-        self._allowed_pairs = schema.allowed_pairs()
+        self._entity_labels = schema.extractable_entity_type_names()
+        self._allowed_pairs = schema.allowed_pairs(extractable_only=True)
 
     def prune(
         self, entities: list[Entity], relations: list[Relation]

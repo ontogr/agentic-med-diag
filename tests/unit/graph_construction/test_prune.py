@@ -2,8 +2,10 @@
 
 The schema has three entity types (Drug, Disease, Gene) and two relation types:
 TREATS from Drug to Disease, and INTERACTS_WITH declared for Gene to Gene and for
-Drug to Gene. Each test builds the schema with the mode it exercises. Everything
-runs in memory.
+Drug to Gene. A second schema adds a non-extractable Biomarker entity type and
+non-extractable ASSOCIATED_WITH relation type, plus an extractable MEASURED_BY
+relation that points at Biomarker and so is excluded from extraction. Each test
+builds the schema with the mode it exercises. Everything runs in memory.
 """
 
 from __future__ import annotations
@@ -54,6 +56,46 @@ def _schema(mode: OntologyMode) -> GraphSchema:
                 glirel_label="drug interacts with gene",
                 head_labels=["Drug"],
                 tail_labels=["Gene"],
+            ),
+        ],
+        mode=mode,
+    )
+
+
+def _schema_with_non_extractable(mode: OntologyMode) -> GraphSchema:
+    return GraphSchema(
+        entity_types=[
+            EntityType(label="Drug", gliner_label="drug", description="A medication."),
+            EntityType(
+                label="Disease", gliner_label="disease", description="A condition."
+            ),
+            EntityType(label="Gene", gliner_label="gene", description="A gene."),
+            EntityType(
+                label="Biomarker",
+                gliner_label="biomarker",
+                description="A measured lab value.",
+                extractable=False,
+            ),
+        ],
+        relation_types=[
+            RelationType(
+                type="TREATS",
+                glirel_label="drug treats disease",
+                head_labels=["Drug"],
+                tail_labels=["Disease"],
+            ),
+            RelationType(
+                type="ASSOCIATED_WITH",
+                glirel_label="gene associated with disease",
+                head_labels=["Gene"],
+                tail_labels=["Disease"],
+                extractable=False,
+            ),
+            RelationType(
+                type="MEASURED_BY",
+                glirel_label="disease measured by biomarker",
+                head_labels=["Disease"],
+                tail_labels=["Biomarker"],
             ),
         ],
         mode=mode,
@@ -344,3 +386,83 @@ class TestOntologyPruner:
         assert report.entities_kept == Counter({"Procedure": 1, "Drug": 1})
         assert report.entities_violating == Counter()
         assert report.relations_kept == Counter({"TREATS": 1})
+
+    @pytest.mark.parametrize(
+        ("mode", "expected_kept", "expected_violations"),
+        [("strict", False, 1), ("warn", True, 1), ("open", True, 0)],
+    )
+    def test_non_extractable_relation_type_is_dropped_only_in_strict(
+        self,
+        mode: OntologyMode,
+        expected_kept: bool,
+        expected_violations: int,
+    ):
+        """A relation of a non-extractable type is dropped in strict mode only."""
+        gene = Entity(name="COX1", label="Gene")
+        disease = Entity(name="headache", label="Disease")
+        relation = _relation(gene, disease, "ASSOCIATED_WITH")
+        pruner = OntologyPruner(_schema_with_non_extractable(mode))
+
+        _, relations, report = pruner.prune([gene, disease], [relation])
+
+        assert relations == ([relation] if expected_kept else [])
+        assert report.relations_violating["ASSOCIATED_WITH"] == expected_violations
+
+    @pytest.mark.parametrize(
+        ("mode", "expected_head_names"),
+        [("strict", []), ("warn", ["headache"])],
+    )
+    def test_does_not_swap_reversed_non_extractable_relation(
+        self, mode: OntologyMode, expected_head_names: list[str]
+    ):
+        """A reversed relation of a non-extractable type is never swapped."""
+        gene = Entity(name="COX1", label="Gene")
+        disease = Entity(name="headache", label="Disease")
+        reversed_relation = _relation(disease, gene, "ASSOCIATED_WITH")
+        pruner = OntologyPruner(_schema_with_non_extractable(mode))
+
+        _, relations, report = pruner.prune([gene, disease], [reversed_relation])
+
+        assert [relation.head_name for relation in relations] == expected_head_names
+        assert report.relations_swapped == Counter()
+        assert report.relations_violating == Counter({"ASSOCIATED_WITH": 1})
+
+    @pytest.mark.parametrize(
+        ("mode", "expected_labels", "expected_relation_count", "expected_violations"),
+        [
+            ("strict", ["Disease"], 0, Counter({"Biomarker": 1})),
+            ("warn", ["Biomarker", "Disease"], 1, Counter({"Biomarker": 1})),
+            ("open", ["Biomarker", "Disease"], 1, Counter()),
+        ],
+    )
+    def test_non_extractable_entity_is_dropped_with_its_relations_only_in_strict(
+        self,
+        mode: OntologyMode,
+        expected_labels: list[str],
+        expected_relation_count: int,
+        expected_violations: Counter[str],
+    ):
+        """An entity of a non-extractable label is dropped in strict mode only."""
+        biomarker = Entity(name="troponin", label="Biomarker")
+        disease = Entity(name="infarction", label="Disease")
+        pruner = OntologyPruner(_schema_with_non_extractable(mode))
+
+        entities, relations, report = pruner.prune(
+            [biomarker, disease], [_relation(disease, biomarker, "MEASURED_BY")]
+        )
+
+        assert [entity.label for entity in entities] == expected_labels
+        assert len(relations) == expected_relation_count
+        assert report.entities_violating == expected_violations
+
+    def test_keeps_extractable_relation_between_extractable_entities_in_strict(self):
+        """An extractable relation between extractable entities survives strict mode."""
+        drug = Entity(name="aspirin", label="Drug")
+        disease = Entity(name="headache", label="Disease")
+        relation = _relation(drug, disease, "TREATS")
+        pruner = OntologyPruner(_schema_with_non_extractable("strict"))
+
+        _, relations, report = pruner.prune([drug, disease], [relation])
+
+        assert relations == [relation]
+        assert report.relations_violating == Counter()

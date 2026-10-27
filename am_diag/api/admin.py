@@ -112,7 +112,19 @@ class GraphAdmin:
         description: str | None = None,
         schema: GraphSchema | None = None,
     ) -> GraphRecord:
-        """Update display metadata or schema, reconnecting the graph if needed."""
+        """Update display metadata or schema, reconnecting the graph if needed.
+
+        A replacement schema must keep the ontology the graph was created with.
+        It is checked against the ontology stored in the graph before anything is
+        persisted. A graph without a stored ontology records the replacement.
+
+        Raises:
+            OntologyVersionMismatch: If the graph already holds a different
+                ontology than ``schema``.
+        """
+        if schema is not None:
+            graph = self._pool.graph(graph_id)
+            await graph.graph_store.register_ontology(schema)
         updated = self._registry.update_graph(
             graph_id,
             name=name,

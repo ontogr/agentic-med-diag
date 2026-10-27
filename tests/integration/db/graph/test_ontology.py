@@ -11,8 +11,10 @@ import pytest
 
 from am_diag.common.cypher.loader import load
 from am_diag.common.data_models.knowledge_graph import KnowledgeGraph
+from am_diag.common.data_models.schema import EntityType, GraphSchema
 from am_diag.db.graph.base import GraphStore
 from am_diag.db.graph.errors import OntologyVersionMismatch
+from am_diag.db.graph.serialize import ontology_entity_records
 
 
 async def _entity_count(graph_store: GraphStore) -> int:
@@ -66,6 +68,45 @@ class TestOntologyMirror:
         assert str(excinfo.value) == (
             "graph holds ontology 'unversioned', requested '2.0'; "
             "build a new graph to change ontology"
+        )
+
+    async def test_registering_a_changed_mode_updates_the_loaded_mode(
+        self, graph_store: GraphStore, knowledge_graph: KnowledgeGraph
+    ) -> None:
+        """Load the new enforcement mode after re-registering with only mode changed."""
+        schema = knowledge_graph.graph_schema
+        assert schema is not None
+        await graph_store.register_ontology(schema)
+        strict = schema.model_copy(update={"mode": "strict"})
+        await graph_store.register_ontology(strict)
+        loaded = await graph_store.load_ontology()
+        assert loaded is not None
+        assert loaded.mode == "strict"
+
+    async def test_registering_after_an_interrupted_attempt_mirrors_only_new_types(
+        self, graph_store: GraphStore, knowledge_graph: KnowledgeGraph
+    ) -> None:
+        """Replace entity types left by an attempt that stopped before its meta node."""
+        schema = knowledge_graph.graph_schema
+        assert schema is not None
+        leftover = GraphSchema(
+            entity_types=[
+                EntityType(
+                    label="Symptom",
+                    gliner_label="symptom",
+                    description="A sign reported by a patient.",
+                )
+            ]
+        )
+        await graph_store.execute_batch(
+            load("ontology/upsert_entity_types"), ontology_entity_records(leftover)
+        )
+        await graph_store.register_ontology(schema)
+        rows = await graph_store.execute_query(
+            "MATCH (n:`__OntoEntity`) RETURN n.label AS label", read_only=True
+        )
+        assert sorted(row["label"] for row in rows) == sorted(
+            entity_type.label for entity_type in schema.entity_types
         )
 
     async def test_mirror_is_invisible_to_entity_and_edge_reads(

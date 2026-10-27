@@ -7,6 +7,8 @@ definition but not entity ids, so equality checks compare fingerprints.
 
 from __future__ import annotations
 
+import asyncio
+from collections import Counter
 from typing import Any
 
 import pytest
@@ -60,12 +62,24 @@ def _stored_row(schema: GraphSchema) -> dict[str, Any]:
 
 
 class _RecordingGraphStore(CypherGraphStore):
-    """Cypher store that records each query and serves one stored mirror row."""
+    """Cypher store that records each query and keeps one stored mirror row.
 
-    def __init__(self, stored_rows: list[dict[str, Any]] | None = None) -> None:
-        """Return ``stored_rows`` for the ontology load query."""
+    A meta write replaces the stored row, so a later load sees it. With
+    ``interleave`` each query yields to the event loop first, which lets
+    concurrent registrations interleave at every database call.
+    """
+
+    def __init__(
+        self,
+        stored_rows: list[dict[str, Any]] | None = None,
+        *,
+        interleave: bool = False,
+    ) -> None:
+        """Start with ``stored_rows`` as the mirror, yielding per query if asked."""
+        super().__init__()
         self.stored_rows = stored_rows or []
         self.executed: list[tuple[str, dict[str, Any] | None]] = []
+        self._interleave = interleave
 
     async def execute_query(
         self,
@@ -74,8 +88,14 @@ class _RecordingGraphStore(CypherGraphStore):
         *,
         read_only: bool = False,
     ) -> list[dict[str, Any]]:
-        """Record the query and return stored rows for the ontology load."""
+        """Record the query, then serve or update the stored mirror row."""
         self.executed.append((query, params))
+        if self._interleave:
+            await asyncio.sleep(0)
+        if query == load("ontology/upsert_meta") and params is not None:
+            self.stored_rows = [
+                {"version": params["version"], "schema_json": params["schema_json"]}
+            ]
         if query == load("ontology/load_ontology"):
             return self.stored_rows
         return []
@@ -122,12 +142,13 @@ class TestOntologyRegistration:
         assert loaded.version == "1.0"
         assert loaded.fingerprint() == stored.fingerprint()
 
-    async def test_writes_entity_types_then_pairs_then_meta(self) -> None:
+    async def test_clears_then_writes_entity_types_then_pairs_then_meta(self) -> None:
         """Write the meta node last so an interrupted registration leaves none."""
         store = _RecordingGraphStore()
         await store.register_ontology(_schema())
         assert [query for query, _ in store.executed] == [
             load("ontology/load_ontology"),
+            load("ontology/clear_mirror"),
             load("ontology/upsert_entity_types"),
             load("ontology/upsert_pairs"),
             load("ontology/upsert_meta"),
@@ -269,10 +290,37 @@ class TestOntologyRegistration:
             load("ontology/load_ontology"),
         ]
 
-    async def test_mode_change_alone_is_accepted_without_writes(self) -> None:
-        """Ignore enforcement mode when comparing stored and requested ontologies."""
+    async def test_mode_change_alone_rewrites_only_the_meta_node(self) -> None:
+        """Accept a new mode and update only the meta node, with no raise."""
         store = _RecordingGraphStore(stored_rows=[_stored_row(_schema(mode="open"))])
         await store.register_ontology(_schema(mode="strict"))
         assert [query for query, _ in store.executed] == [
             load("ontology/load_ontology"),
+            load("ontology/upsert_meta"),
         ]
+        meta = dict(store.executed)[load("ontology/upsert_meta")]
+        assert meta["mode"] == "strict"
+        stored = GraphSchema.model_validate_json(meta["schema_json"])
+        assert stored.mode == "strict"
+
+    async def test_concurrent_registrations_write_one_schema(self) -> None:
+        """Let exactly one of two racing versions write the mirror."""
+        store = _RecordingGraphStore(interleave=True)
+        results = await asyncio.gather(
+            store.register_ontology(_schema(version="1.0")),
+            store.register_ontology(_schema(version="2.0")),
+            return_exceptions=True,
+        )
+        assert sum(result is None for result in results) == 1
+        assert (
+            sum(isinstance(result, OntologyVersionMismatch) for result in results) == 1
+        )
+        winning_version = ("1.0", "2.0")[results.index(None)]
+        loaded = await store.load_ontology()
+        assert loaded is not None
+        assert loaded.version == winning_version
+        writes = Counter(query for query, _ in store.executed)
+        assert writes[load("ontology/clear_mirror")] == 1
+        assert writes[load("ontology/upsert_entity_types")] == 1
+        assert writes[load("ontology/upsert_pairs")] == 1
+        assert writes[load("ontology/upsert_meta")] == 1

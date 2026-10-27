@@ -106,6 +106,39 @@ def _fingerprint_schema(
     )
 
 
+def _mixed_extractability_schema() -> GraphSchema:
+    """Build a schema with one non-extractable entity type and mixed relations.
+
+    ``ASSOCIATED_WITH`` has one extractable head and one non-extractable head, so
+    it stays extractable while its Gene pairs are hidden. ``EXPRESSED_IN`` has only
+    non-extractable heads and is left out entirely. ``PARENT`` is not extractable.
+    """
+    return GraphSchema(
+        entity_types=[
+            _entity("Drug", "drug", "A drug."),
+            _entity("Disease", "disease", "A disease."),
+            _entity("Gene", "gene", "A gene.", extractable=False),
+        ],
+        relation_types=[
+            _relation("TREATS", "treats", ["Drug"], ["Disease"]),
+            _relation(
+                "ASSOCIATED_WITH",
+                "associated with",
+                ["Drug", "Gene"],
+                ["Disease"],
+            ),
+            _relation("EXPRESSED_IN", "is expressed in", ["Gene"], ["Disease"]),
+            _relation(
+                "PARENT",
+                "is a parent of",
+                ["Disease"],
+                ["Disease"],
+                extractable=False,
+            ),
+        ],
+    )
+
+
 class TestGraphSchema:
     """Validation, defaults, relation grouping, and extractor-facing views."""
 
@@ -320,6 +353,35 @@ class TestGraphSchema:
         assert "  :Gene - A gene." in text
         assert "  type 'PARENT': Gene->Gene" in text
 
+    def test_as_text_includes_relation_description_when_set(self) -> None:
+        """A relation description is appended to its as_text group line."""
+        schema = GraphSchema(
+            entity_types=[
+                _entity("Drug", "drug", "A drug."),
+                _entity("Disease", "disease", "A disease."),
+            ],
+            relation_types=[
+                _relation(
+                    "INDICATION",
+                    "drug is indicated for disease",
+                    ["Drug"],
+                    ["Disease"],
+                    description="The drug treats the disease.",
+                ),
+            ],
+        )
+
+        assert schema.as_text() == (
+            "Graph schema:\n"
+            "Nodes (each is :Entity plus its label):\n"
+            "  :Drug - A drug.\n"
+            "  :Disease - A disease.\n"
+            "Relationships (all are :RELATES_TO with a `type` property; "
+            "head -> tail):\n"
+            "  type 'INDICATION': Drug->Disease - The drug treats the disease.\n"
+            "Valid type values: ['INDICATION']"
+        )
+
     def test_allowed_pairs_keep_every_declared_triple(self) -> None:
         """allowed_pairs lists each head and tail combination, extractable or not."""
         schema = GraphSchema(
@@ -504,6 +566,121 @@ class TestGraphSchema:
 
         assert schema.glirel_labels() == ["associated with"]
 
+    def test_glirel_labels_dedupe_a_type_declared_for_several_pairs(self) -> None:
+        """A relation type declared for several endpoint pairs yields one label."""
+        schema = GraphSchema(
+            entity_types=[
+                _entity("Drug", "drug", "A drug."),
+                _entity("Gene", "gene", "A gene."),
+                _entity("Disease", "disease", "A disease."),
+            ],
+            relation_types=[
+                _relation("USES", "uses", ["Drug"], ["Gene"]),
+                _relation("TREATS", "treats", ["Drug"], ["Disease"]),
+                _relation("USES", "uses", ["Drug"], ["Disease"]),
+            ],
+        )
+
+        assert schema.glirel_labels() == ["uses", "treats"]
+
+    def test_rejects_extractable_relation_types_sharing_a_glirel_label(self) -> None:
+        """Two extractable relation types of different names may not share a label."""
+        with pytest.raises(ValueError, match=r"share a glirel_label: \['treats'\]"):
+            GraphSchema(
+                entity_types=[
+                    _entity("Drug", "drug", "A drug."),
+                    _entity("Disease", "disease", "A disease."),
+                ],
+                relation_types=[
+                    _relation("TREATS", "treats", ["Drug"], ["Disease"]),
+                    _relation("CURES", "treats", ["Drug"], ["Disease"]),
+                ],
+            )
+
+    @pytest.mark.parametrize(
+        (
+            "second_name",
+            "first_label",
+            "second_label",
+            "second_extractable",
+            "expected",
+        ),
+        [
+            pytest.param(
+                "CURES",
+                "treats",
+                "treats",
+                False,
+                ["treats"],
+                id="second_not_extractable",
+            ),
+            pytest.param("CURES", "", "", True, [], id="empty_glirel_label"),
+            pytest.param(
+                "TREATS",
+                "treats",
+                "treats",
+                True,
+                ["treats"],
+                id="same_type_name",
+            ),
+        ],
+    )
+    def test_allows_shared_glirel_label_when_it_does_not_conflict(
+        self,
+        second_name: str,
+        first_label: str,
+        second_label: str,
+        second_extractable: bool,
+        expected: list[str],
+    ) -> None:
+        """A shared GLiREL label is allowed unless two extractable names claim it."""
+        schema = GraphSchema(
+            entity_types=[
+                _entity("Drug", "drug", "A drug."),
+                _entity("Disease", "disease", "A disease."),
+            ],
+            relation_types=[
+                _relation("TREATS", first_label, ["Drug"], ["Disease"]),
+                _relation(
+                    second_name,
+                    second_label,
+                    ["Drug"],
+                    ["Disease"],
+                    extractable=second_extractable,
+                ),
+            ],
+        )
+
+        assert schema.glirel_labels() == expected
+
+    def test_extractable_type_names_exclude_non_extractable_types(self) -> None:
+        """Name views keep only extractable entity and relation types."""
+        schema = _mixed_extractability_schema()
+
+        assert schema.extractable_entity_type_names() == {"Drug", "Disease"}
+        assert schema.extractable_relation_type_names() == {
+            "TREATS",
+            "ASSOCIATED_WITH",
+        }
+
+    def test_allowed_pairs_extractable_only_drops_pairs_touching_hidden_labels(
+        self,
+    ) -> None:
+        """Extractable-only pairs drop any triple with a non-extractable endpoint."""
+        schema = _mixed_extractability_schema()
+
+        assert schema.allowed_pairs(extractable_only=True) == {
+            ("Drug", "TREATS", "Disease"),
+            ("Drug", "ASSOCIATED_WITH", "Disease"),
+        }
+        assert schema.allowed_pairs() == {
+            ("Drug", "TREATS", "Disease"),
+            ("Drug", "ASSOCIATED_WITH", "Disease"),
+            ("Gene", "ASSOCIATED_WITH", "Disease"),
+            ("Gene", "EXPRESSED_IN", "Disease"),
+            ("Disease", "PARENT", "Disease"),
+        }
+
     def test_entity_prompt_block_omits_non_extractable_entity_types(self) -> None:
         """The entity prompt lists only extractable entity types."""
         schema = GraphSchema(
@@ -541,6 +718,31 @@ class TestGraphSchema:
 
         assert schema.relation_prompt_block() == (
             "- INDICATION [Drug → Disease]: drug is indicated for disease"
+        )
+
+    def test_relation_prompt_block_includes_relation_description_when_set(
+        self,
+    ) -> None:
+        """A relation description follows its GLiREL label in the prompt line."""
+        schema = GraphSchema(
+            entity_types=[
+                _entity("Drug", "drug", "A drug."),
+                _entity("Disease", "disease", "A disease."),
+            ],
+            relation_types=[
+                _relation(
+                    "INDICATION",
+                    "drug is indicated for disease",
+                    ["Drug"],
+                    ["Disease"],
+                    description="The drug treats the disease.",
+                ),
+            ],
+        )
+
+        assert schema.relation_prompt_block() == (
+            "- INDICATION [Drug → Disease]: drug is indicated for disease"
+            " - The drug treats the disease."
         )
 
     def test_relation_prompt_block_keeps_relation_type_without_glirel_label(

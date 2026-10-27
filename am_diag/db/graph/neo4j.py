@@ -71,6 +71,7 @@ class Neo4jClient(CypherGraphStore):
 
     def __init__(self, settings: Neo4jSettings) -> None:
         """Open a driver configured for the requested database."""
+        super().__init__()
         self._driver = AsyncGraphDatabase.driver(
             settings.uri, auth=(settings.user, settings.password)
         )

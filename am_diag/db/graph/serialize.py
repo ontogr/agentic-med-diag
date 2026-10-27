@@ -24,7 +24,11 @@ from am_diag.common.data_models.community_report import CommunityReport
 from am_diag.common.data_models.document import Document
 from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.relation import Relation
-from am_diag.common.data_models.schema import GraphSchema
+from am_diag.common.data_models.schema import (
+    GraphSchema,
+    OntologyEntityRecord,
+    OntologyPairRecord,
+)
 
 
 # Provenance lists promoted to top-level (queryable, union-preserving) node/edge
@@ -426,7 +430,7 @@ def has_report_records(reports: list[CommunityReport]) -> list[dict[str, str]]:
     ]
 
 
-def ontology_entity_records(schema: GraphSchema) -> list[dict[str, Any]]:
+def ontology_entity_records(schema: GraphSchema) -> list[OntologyEntityRecord]:
     """Build the records for upsert_entity_types.cypher, one per entity type.
 
     Args:
@@ -447,7 +451,7 @@ def ontology_entity_records(schema: GraphSchema) -> list[dict[str, Any]]:
     ]
 
 
-def ontology_pair_records(schema: GraphSchema) -> list[dict[str, Any]]:
+def ontology_pair_records(schema: GraphSchema) -> list[OntologyPairRecord]:
     """Build the records for upsert_pairs.cypher, one per allowed triple.
 
     Pairs whose head or tail is not a declared entity type are omitted because
@@ -463,7 +467,7 @@ def ontology_pair_records(schema: GraphSchema) -> list[dict[str, Any]]:
         ``extractable`` keys, sorted by ``(type, head, tail)``.
     """
     declared = schema.entity_type_names()
-    records: dict[tuple[str, str, str], dict[str, Any]] = {}
+    records: dict[tuple[str, str, str], OntologyPairRecord] = {}
     for rt in schema.relation_types:
         for head in rt.head_labels:
             for tail in rt.tail_labels:
