@@ -22,6 +22,8 @@ def build_schema_typebuilder(schema: GraphSchema) -> TypeBuilder:
     The returned TypeBuilder should be passed to BAML functions that use
     @@dynamic enums (EntityType, RelationType) via ``baml_options={"tb": tb}``.
 
+    Only types that text extractors may produce are offered.
+
     Each EntityType value is annotated with the entity type description so the
     LLM sees human-readable labels in the output schema, not just identifiers.
     RelationType values are annotated with the GLiREL label for the same reason.
@@ -33,8 +35,8 @@ def build_schema_typebuilder(schema: GraphSchema) -> TypeBuilder:
         A TypeBuilder with EntityType and RelationType enums populated.
     """
     tb = TypeBuilder()
-    for et in schema.entity_types:
+    for et in schema.extractable_entity_types():
         tb.EntityType.add_value(et.label).description(et.description)
-    for rt in schema.relation_types:
+    for rt in schema.extractable_relation_types():
         tb.RelationType.add_value(rt.type).description(rt.glirel_label)
     return tb

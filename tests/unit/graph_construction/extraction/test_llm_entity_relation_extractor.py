@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from am_diag.common.data_models import Chunk
+from am_diag.common.data_models.schema import EntityType, GraphSchema, RelationType
 from am_diag.common.schema import MEDICAL_GRAPHRAG_SCHEMA
 from am_diag.graph_construction.config import ExtractionPipelineConfig
 from am_diag.graph_construction.extract.llm import (
@@ -98,6 +99,63 @@ class TestLLMEntityRelationExtractor:
             MEDICAL_GRAPHRAG_SCHEMA,
         )
         assert len(relations) == 0
+
+    def test_flatten_kg_drops_non_extractable_entity_and_relation_types(self):
+        """Entities and relations of non-extractable types are dropped."""
+        chunk = _make_chunk()
+        schema = GraphSchema(
+            entity_types=[
+                EntityType(label="Drug", gliner_label="drug", description="A drug."),
+                EntityType(
+                    label="Disease",
+                    gliner_label="disease",
+                    description="A disease.",
+                ),
+                EntityType(
+                    label="Gene",
+                    gliner_label="gene",
+                    description="A gene.",
+                    extractable=False,
+                ),
+            ],
+            relation_types=[
+                RelationType(
+                    type="TREATS",
+                    glirel_label="treats",
+                    head_labels=["Drug"],
+                    tail_labels=["Disease"],
+                ),
+                RelationType(
+                    type="PARENT",
+                    glirel_label="is a parent of",
+                    head_labels=["Drug"],
+                    tail_labels=["Drug"],
+                    extractable=False,
+                ),
+            ],
+        )
+        kg = _mock_kg(
+            entities=[
+                _mock_entity(entity_type="Drug", name="metformin"),
+                _mock_entity(entity_type="Disease", name="T2DM"),
+                _mock_entity(entity_type="Gene", name="TCF7L2"),
+            ],
+            relations=[
+                _mock_relation(
+                    relation_type="TREATS",
+                    head_name="metformin",
+                    tail_name="T2DM",
+                ),
+                _mock_relation(
+                    relation_type="PARENT",
+                    head_name="metformin",
+                    tail_name="metformin",
+                ),
+            ],
+        )
+        entities, relations = _flatten_kg(kg, str(chunk.id), schema)
+        assert [entity.name for entity in entities] == ["metformin", "T2DM"]
+        assert [relation.type for relation in relations] == ["TREATS"]
 
     def test_flatten_kg_drops_dangling_relation(self):
         """Relations whose headName/tailName not in extracted entities are dropped."""

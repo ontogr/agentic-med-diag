@@ -205,6 +205,19 @@ class TestNeo4jClient:
             c = Neo4jClient(settings)
         assert c._database == "mydb"
 
+    @pytest.mark.parametrize("constraint", ["onto_entity_label", "onto_meta_key"])
+    async def test_setup_schema_creates_ontology_mirror_constraints(
+        self,
+        client: Neo4jClient,
+        mock_driver: MagicMock,
+        constraint: str,
+    ) -> None:
+        """Verify setup_schema issues the uniqueness constraints for the mirror."""
+        await client.setup_schema(GraphSchema())
+
+        executed = [call.args[0] for call in mock_driver.execute_query.call_args_list]
+        assert any(f"CREATE CONSTRAINT {constraint} " in cypher for cypher in executed)
+
 
 class TestCreateNeo4jClient:
     """Tests for create_neo4j_client factory function."""

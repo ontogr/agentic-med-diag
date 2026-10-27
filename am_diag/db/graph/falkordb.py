@@ -6,7 +6,7 @@ import asyncio
 import json
 import random
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from importlib import import_module
 from typing import Any
 
@@ -126,6 +126,7 @@ class FalkorDBClient(CypherGraphStore):
 
     def __init__(self, settings: FalkorDBSettings) -> None:
         """Store settings without importing or constructing the optional driver."""
+        super().__init__()
         self._settings = settings
         self._driver: Any = None
         self._graph: Any = None
@@ -182,7 +183,7 @@ class FalkorDBClient(CypherGraphStore):
             raise
 
     async def execute_batch(
-        self, query: str, records: list[dict[str, Any]], batch_size: int = 500
+        self, query: str, records: Sequence[Mapping[str, Any]], batch_size: int = 500
     ) -> None:
         """Create structural indexes before independently retryable write slices."""
         if batch_size <= 0:
@@ -322,6 +323,7 @@ class FalkorDBClient(CypherGraphStore):
             indexes = [(label, "id", False) for label in _BASE_LABELS]
             indexes += [("Entity", "label", False)]
             indexes += [("RELATES_TO", prop, True) for prop in ("id", "type")]
+            indexes += [("__OntoEntity", "label", False), ("__OntoMeta", "key", False)]
             await self._create_indexes_unlocked(indexes)
             self._base_indexes_ready = True
 
