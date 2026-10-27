@@ -58,6 +58,25 @@ class TestAssembleContext:
             "## Passages\n- [Source: pubmed] Asthma is chronic."
         )
 
+    def test_passage_source_prefers_the_document_name(self) -> None:
+        """A chunk with a document name shows it instead of the corpus source."""
+        chunk = Chunk(
+            id=uuid4(),
+            text="Asthma is chronic.",
+            document_id=uuid4(),
+            document_source="pubmed",
+            chunk_index=0,
+            chunk_size=18,
+            cut_type="x",
+            properties={"document_name": "Asthma review"},
+        )
+
+        context = assemble_context([_result(chunk)])
+
+        assert (
+            context.text == "## Passages\n- [Source: Asthma review] Asthma is chronic."
+        )
+
     def test_empty_results_give_empty_text(self) -> None:
         """No results and no hint produce no text."""
         assert assemble_context([]).text == ""

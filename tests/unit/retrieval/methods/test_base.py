@@ -8,7 +8,7 @@ from uuid import uuid4
 from am_diag.common.data_models.chunk import Chunk
 from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.relation import Relation
-from am_diag.common.data_models.search import Fact, SearchResult
+from am_diag.common.data_models.search import CypherRow, Fact, SearchResult
 from am_diag.retrieval.methods.base import collect_seeds
 
 
@@ -47,6 +47,15 @@ class TestCollectSeeds:
         seeds = collect_seeds([_result(chunk), _result(chunk)])
 
         assert seeds.chunk_ids == [str(chunk.id)]
+
+    def test_cypher_row_seeds_the_ids_it_contains(self) -> None:
+        """UUID strings in a Cypher row seed entities; other values do not."""
+        entity_id = str(uuid4())
+        row = CypherRow(values={"id": entity_id, "name": "asthma", "n": 3})
+
+        seeds = collect_seeds([_result(row)])
+
+        assert seeds.entity_ids == [entity_id]
 
     def test_limits_each_list(self) -> None:
         """Only the first `limit` ids are kept."""

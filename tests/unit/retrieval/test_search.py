@@ -298,9 +298,14 @@ class TestSearchEngineStages:
         assert {r.item.name for r in listed} == {"seed", "sib"}
 
     async def test_cosine_orders_chunks_by_similarity(
-        self, engine: SearchEngine, vectors: MagicMock, embedder: MagicMock
+        self,
+        engine: SearchEngine,
+        graph: MagicMock,
+        vectors: MagicMock,
+        embedder: MagicMock,
     ) -> None:
         """Chunks are ordered by cosine to the query using stored vectors."""
+        graph.execute_query = AsyncMock(return_value=[])
         near, far = uuid4(), uuid4()
 
         def chunk(chunk_id, text):
@@ -336,3 +341,67 @@ class TestSearchEngineStages:
 
         assert [r.item.text for r in results] == ["near", "far"]
         assert [r.score for r in results] == pytest.approx([1.0, 0.0])
+
+    async def test_cypher_row_ids_seed_expansion(
+        self, engine: SearchEngine, graph: MagicMock
+    ) -> None:
+        """An entity id returned by text-to-Cypher is expanded like any seed."""
+        seed_id = str(uuid4())
+        row = SearchResult(
+            item=CypherRow(values={"id": seed_id}), score=1.0, source="cypher"
+        )
+        engine._text2cypher.retrieve = AsyncMock(return_value=[row])
+        graph.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "head_id": seed_id,
+                    "head_name": "metformin",
+                    "type": "INDICATION",
+                    "tail_id": "t",
+                    "tail_name": "diabetes",
+                    "description": None,
+                    "structural_label": None,
+                    "sources": [],
+                    "chunk_ids": [],
+                }
+            ]
+        )
+        recipe = SearchConfig(
+            methods=["text2cypher"], expanders=["relations_1hop"], reranker="rrf"
+        )
+
+        results = await engine.search("q", recipe=recipe)
+
+        assert [r.source for r in results] == ["cypher", "relations_1hop"]
+        assert graph.execute_query.call_args.args[1]["ids"] == [seed_id]
+
+    async def test_chunks_carry_their_document_name(
+        self, engine: SearchEngine, graph: MagicMock
+    ) -> None:
+        """Returned chunks are labelled with the title of their document."""
+        chunk_id = uuid4()
+        chunk = Chunk(
+            id=chunk_id,
+            text="t",
+            document_id=uuid4(),
+            document_source="pubmed",
+            chunk_index=0,
+            chunk_size=1,
+            cut_type="x",
+        )
+        engine._chunk.retrieve = AsyncMock(
+            return_value=[SearchResult(item=chunk, score=0.5, source="chunk")]
+        )
+        graph.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "chunk_id": str(chunk_id),
+                    "title": "Asthma review",
+                    "external_id": "7",
+                }
+            ]
+        )
+
+        results = await engine.search("q", recipe=SearchConfig(methods=["chunk"]))
+
+        assert results[0].item.properties["document_name"] == "Asthma review"

@@ -30,6 +30,7 @@ from am_diag.retrieval.methods.base import (
 from am_diag.retrieval.methods.chunk_expand import chunks_mentioning, chunks_two_hop
 from am_diag.retrieval.methods.chunk_keywords import chunk_keyword_search
 from am_diag.retrieval.methods.chunk_vectors import fetch_chunk_vectors
+from am_diag.retrieval.methods.document_names import attach_document_names
 from am_diag.retrieval.methods.entity_lookup import entity_lookup
 from am_diag.retrieval.methods.keywords import Keywords, extract_keywords
 from am_diag.retrieval.methods.local_context import local_context
@@ -178,7 +179,9 @@ class SearchEngine:
         if recipe.expanders:
             context = ExpansionContext(
                 query=query,
-                seeds=collect_seeds([r for lst in vector_lists for r in lst]),
+                seeds=collect_seeds(
+                    [*cypher_rows, *(r for lst in vector_lists for r in lst)]
+                ),
                 filters=filters,
                 query_vector=query_vector,
             )
@@ -191,6 +194,7 @@ class SearchEngine:
         fused = await self._fuse(
             query, recipe, [*vector_lists, *expansions], query_vector
         )
+        await attach_document_names(self._graph, fused)
         return [*cypher_rows[: self._config.text2cypher_limit], *fused]
 
     # -- methods ------------------------------------------------------

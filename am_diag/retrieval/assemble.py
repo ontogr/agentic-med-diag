@@ -69,7 +69,8 @@ def _line(item: object) -> str:
     if isinstance(item, Fact):
         return item.text()
     if isinstance(item, Chunk):
-        return f"[Source: {item.document_source}] {item.text}"
+        source = item.properties.get("document_name") or item.document_source
+        return f"[Source: {source}] {item.text}"
     if isinstance(item, CommunityReport):
         return f"{item.title}: {item.summary}"
     return str(item)

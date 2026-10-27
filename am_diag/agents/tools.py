@@ -15,6 +15,8 @@ from langchain_core.tools import tool
 
 from am_diag.common.data_models.search import Fact, SearchResult
 from am_diag.retrieval import recipes
+from am_diag.retrieval.assemble import assemble_context
+from am_diag.retrieval.question_type import question_hint
 
 
 logger = logging.getLogger(__name__)
@@ -182,13 +184,16 @@ def make_retrieval_tools(search_engine: SearchProvider) -> list:
 
     @tool
     @tool_retry_decorator()
-    async def multi_path(query: str) -> list[dict]:
+    async def multi_path(query: str) -> dict:
         """Broad search over entities, facts, passages and community reports.
 
-        Use when the question needs facts about several things at once.
+        Use when the question needs facts about several things at once. Returns
+        a sectioned `context` string with an answer-format hint, and the raw
+        `results`.
         """
         results = await search_engine.search(query, recipe=recipes.MULTI_PATH)
-        return _serialize_results(results)
+        context = assemble_context(results, hint=question_hint(query))
+        return {"context": context.text, "results": _serialize_results(results)}
 
     @tool
     @tool_retry_decorator()

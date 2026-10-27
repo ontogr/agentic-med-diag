@@ -76,6 +76,7 @@ _READ_CASES = {
         1,
         {"id", "name", "labels", "description", "curie"},
     ),
+    "retrieval/chunk_documents": ("chunk", 1, {"chunk_id", "title", "external_id"}),
     "retrieval/siblings": ("entity", 1, {"id", "name", "labels"}),
     "retrieval/entity_chunk_ids": ("entity", 1, {"entity_id", "chunk_id"}),
     "retrieval/two_hop_chunk_ids": ("entity", 1, {"chunk_id"}),

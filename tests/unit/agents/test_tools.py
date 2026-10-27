@@ -42,6 +42,24 @@ class TestRetrievalTools:
             "budesonide \u2014[INDICATION]\u2192 asthma (sources: DrugBank)"
         )
 
+    def test_multi_path_returns_sectioned_context(self) -> None:
+        """multi_path packs results into a context string with a format hint."""
+        entity = Entity(name="asthma", label="Disease")
+        engine = MagicMock(spec=SearchEngine)
+        engine.search = AsyncMock(
+            return_value=[SearchResult(item=entity, score=1.0, source="entity")]
+        )
+        tools = make_retrieval_tools(engine)
+        multi_path = [t for t in tools if t.name == "multi_path"][0]
+
+        output = asyncio.run(multi_path.ainvoke({"query": "Is asthma chronic?"}))
+
+        assert output["context"] == (
+            "Answer format: start with Yes or No, then explain briefly.\n\n"
+            "## Key entities\n- asthma (Disease)"
+        )
+        assert output["results"][0]["item"]["name"] == "asthma"
+
     def test_empty_list(self) -> None:
         """Serializing an empty result list returns an empty list."""
         assert _serialize_results([]) == []

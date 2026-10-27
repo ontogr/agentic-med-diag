@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from uuid import UUID
 
 from am_diag.common.data_models.chunk import Chunk
 from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.relation import Relation
-from am_diag.common.data_models.search import Fact, SearchResult
+from am_diag.common.data_models.search import CypherRow, Fact, SearchResult
 from am_diag.retrieval.filters import SearchFilters
 
 
@@ -56,12 +57,26 @@ def entity_label(labels: list[str] | None) -> str:
     return "Entity"
 
 
+def _uuid_values(row: CypherRow) -> list[str]:
+    """Return the values of ``row`` that are UUID strings."""
+    ids: list[str] = []
+    for value in row.values.values():
+        if not isinstance(value, str):
+            continue
+        try:
+            ids.append(str(UUID(value)))
+        except ValueError:
+            continue
+    return ids
+
+
 def collect_seeds(results: list[SearchResult], limit: int = 15) -> Seeds:
     """Collect entity and chunk ids from method results, in rank order.
 
     Entities seed themselves, relations and facts seed both endpoints, and chunks
-    seed the chunk list. Ids repeat across methods, so each list keeps the first
-    occurrence only.
+    seed the chunk list. A Cypher row seeds every value in it that is a UUID,
+    since the generated query returns entity ids. Ids repeat across methods, so
+    each list keeps the first occurrence only.
 
     Args:
         results: Results from the recipe's methods, in rank order.
@@ -82,6 +97,8 @@ def collect_seeds(results: list[SearchResult], limit: int = 15) -> Seeds:
             entity_ids += [i for i in (item.head_id, item.tail_id) if i]
         elif isinstance(item, Chunk):
             chunk_ids.append(str(item.id))
+        elif isinstance(item, CypherRow):
+            entity_ids += _uuid_values(item)
     return Seeds(
         entity_ids=list(dict.fromkeys(entity_ids))[:limit],
         chunk_ids=list(dict.fromkeys(chunk_ids))[:limit],

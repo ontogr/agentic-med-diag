@@ -122,6 +122,7 @@ MULTI_PATH: SearchConfig = SearchConfig(
         "chunks_two_hop",
         "siblings",
     ],
+    facts=True,
     reranker="cosine",
     limit=25,
 )
