@@ -322,6 +322,7 @@ class FalkorDBClient(CypherGraphStore):
             indexes = [(label, "id", False) for label in _BASE_LABELS]
             indexes += [("Entity", "label", False)]
             indexes += [("RELATES_TO", prop, True) for prop in ("id", "type")]
+            indexes += [("__OntoEntity", "label", False), ("__OntoMeta", "key", False)]
             await self._create_indexes_unlocked(indexes)
             self._base_indexes_ready = True
 

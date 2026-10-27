@@ -17,7 +17,9 @@ from am_diag.common.data_models.document import Document
 from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.knowledge_graph import KnowledgeGraph
 from am_diag.common.data_models.relation import Relation
+from am_diag.common.data_models.schema import GraphSchema
 from am_diag.db.graph.base import GraphStore
+from am_diag.db.graph.errors import OntologyVersionMismatch
 from am_diag.db.graph.serialize import (
     chunk_record,
     community_record,
@@ -26,6 +28,8 @@ from am_diag.db.graph.serialize import (
     has_entity_records,
     has_report_records,
     in_community_records,
+    ontology_entity_records,
+    ontology_pair_records,
     parent_community_records,
     relation_record,
     report_record,
@@ -251,6 +255,48 @@ class CypherGraphStore(GraphStore):
         await self.link_in_community(kg.communities)
         await self.link_parent_community(kg.communities)
         await self.link_has_report(kg.reports)
+
+    async def load_ontology(self) -> GraphSchema | None:
+        """Return the ontology mirror stored in the graph, or ``None``."""
+        rows = await self.execute_query(
+            load("ontology/load_ontology"), {}, read_only=True
+        )
+        if not rows:
+            return None
+        return GraphSchema.model_validate_json(rows[0]["schema_json"])
+
+    async def register_ontology(self, schema: GraphSchema) -> None:
+        """Store ``schema`` as the graph's ontology, or confirm it is already stored.
+
+        Args:
+            schema: Ontology to mirror into the graph.
+
+        Raises:
+            OntologyVersionMismatch: If the graph holds a different ontology.
+        """
+        stored = await self.load_ontology()
+        if stored is not None:
+            stored_fingerprint = stored.fingerprint(include_mode=False)
+            if stored_fingerprint == schema.fingerprint(include_mode=False):
+                return
+            raise OntologyVersionMismatch(stored.version, schema.version)
+        await self.execute_batch(
+            load("ontology/upsert_entity_types"), ontology_entity_records(schema)
+        )
+        await self.execute_batch(
+            load("ontology/upsert_pairs"), ontology_pair_records(schema)
+        )
+        # FalkorDB has no client transactions. Writing the meta node last means a
+        # partial registration leaves nothing to match on load, so the next call
+        # repeats the idempotent merges above.
+        await self.execute_query(
+            load("ontology/upsert_meta"),
+            {
+                "version": schema.version,
+                "mode": schema.mode,
+                "schema_json": schema.model_dump_json(),
+            },
+        )
 
     async def get_entity(self, entity_id: str) -> dict[str, Any] | None:
         """Return one entity row ``{id, labels, props}`` or ``None`` if absent."""

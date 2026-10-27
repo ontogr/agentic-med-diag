@@ -137,6 +137,31 @@ class GraphStore(ABC):
         """
 
     @abstractmethod
+    async def load_ontology(self) -> GraphSchema | None:
+        """Return the ontology mirrored in the graph, or ``None`` if none is stored.
+
+        Returns:
+            The schema recorded by ``register_ontology``, including the ``mode``
+            that was stored with it.
+        """
+
+    @abstractmethod
+    async def register_ontology(self, schema: GraphSchema) -> None:
+        """Store ``schema`` as the ontology mirror of this graph.
+
+        Registering a definition equal to the stored one is a no-op. ``mode`` is
+        not part of that comparison, so an enforcement change alone does not
+        raise.
+
+        Args:
+            schema: Ontology to store.
+
+        Raises:
+            OntologyVersionMismatch: If the graph already holds a different
+                ontology.
+        """
+
+    @abstractmethod
     async def upsert_documents(self, docs: list[Document]) -> None:
         """Insert or update Document nodes.
 

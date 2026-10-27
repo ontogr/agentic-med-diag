@@ -160,6 +160,9 @@ class Neo4jClient(CypherGraphStore):
         for statement in load("schema/indexes").split(";"):
             if statement.strip():
                 await self.execute_query(statement, {})
+        for statement in load("schema/ontology_constraints").split(";"):
+            if statement.strip():
+                await self.execute_query(statement, {})
 
 
 def create_neo4j_client(settings: Neo4jSettings | None = None) -> Neo4jClient:

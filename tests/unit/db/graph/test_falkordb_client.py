@@ -156,7 +156,7 @@ class TestFalkorDBClient:
         records = [{"id": "a"}, {"id": "b"}]
         await client.execute_batch("UNWIND $records AS r RETURN r", records)
         queries = [call.args[0] for call in graph.query.await_args_list]
-        assert queries[:9] == [
+        assert queries[:11] == [
             "CALL db.indexes()",
             "CREATE INDEX FOR (n:`Entity`) ON (n.id)",
             "CREATE INDEX FOR (n:`Document`) ON (n.id)",
@@ -166,8 +166,10 @@ class TestFalkorDBClient:
             "CREATE INDEX FOR (n:`Entity`) ON (n.label)",
             "CREATE INDEX FOR ()-[n:`RELATES_TO`]-() ON (n.id)",
             "CREATE INDEX FOR ()-[n:`RELATES_TO`]-() ON (n.type)",
+            "CREATE INDEX FOR (n:`__OntoEntity`) ON (n.label)",
+            "CREATE INDEX FOR (n:`__OntoMeta`) ON (n.key)",
         ]
-        assert [call.args[1] for call in graph.query.await_args_list[9:]] == [
+        assert [call.args[1] for call in graph.query.await_args_list[11:]] == [
             {"records": [{"id": "a"}]},
             {"records": [{"id": "b"}]},
         ]
@@ -177,7 +179,7 @@ class TestFalkorDBClient:
         await client.wipe()
         graph.query.reset_mock()
         await client.execute_batch("RETURN $records", records)
-        assert graph.query.await_count == 11
+        assert graph.query.await_count == 13
 
     async def test_existing_index_errors_are_successful_and_memoized(
         self, driver_boundary
@@ -214,7 +216,7 @@ class TestFalkorDBClient:
         client = FalkorDBClient(FalkorDBSettings())
         await client.wipe()
         await client.execute_batch("RETURN $records", [{"id": "a"}])
-        assert graph.query.await_count == 10
+        assert graph.query.await_count == 12
 
     async def test_health_and_close_release_resources(self, driver_boundary):
         """Close releases resources and later health checks reconnect."""
@@ -250,7 +252,7 @@ class TestFalkorDBClient:
                     ["RELATES_TO", ["id", "type"], "RELATIONSHIP"],
                 ],
             ),
-            *[SimpleNamespace(header=[], result_set=[]) for _ in range(5)],
+            *[SimpleNamespace(header=[], result_set=[]) for _ in range(7)],
         ]
         client = FalkorDBClient(FalkorDBSettings())
         await client.execute_batch("RETURN $records", [{"id": "a"}])
@@ -260,6 +262,8 @@ class TestFalkorDBClient:
             "CREATE INDEX FOR (n:`Chunk`) ON (n.id)",
             "CREATE INDEX FOR (n:`Community`) ON (n.id)",
             "CREATE INDEX FOR (n:`CommunityReport`) ON (n.id)",
+            "CREATE INDEX FOR (n:`__OntoEntity`) ON (n.label)",
+            "CREATE INDEX FOR (n:`__OntoMeta`) ON (n.key)",
             "RETURN $records",
         ]
 
