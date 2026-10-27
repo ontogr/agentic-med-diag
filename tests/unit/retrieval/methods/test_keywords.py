@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from baml_py.errors import BamlClientError
 
 from am_diag.retrieval.methods.keywords import extract_keywords, simple_keywords
 
@@ -66,9 +67,18 @@ class TestExtractKeywords:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A failed model call leaves the simple keywords in place."""
-        _baml(monkeypatch, side_effect=RuntimeError("down"))
+        _baml(monkeypatch, side_effect=BamlClientError("down"))
 
         keywords = await extract_keywords("chest pain")
 
         assert keywords.llm == []
         assert keywords.simple == ["chest", "pain"]
+
+    async def test_programming_errors_are_not_swallowed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A result without the expected fields is a bug, not a fallback case."""
+        _baml(monkeypatch, return_value=SimpleNamespace())
+
+        with pytest.raises(AttributeError):
+            await extract_keywords("chest pain")

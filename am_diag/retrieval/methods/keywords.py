@@ -6,6 +6,8 @@ import logging
 import re
 from dataclasses import dataclass, field
 
+from baml_py.errors import BamlError
+
 from am_diag.common.data_models.schema import GraphSchema
 
 
@@ -64,8 +66,9 @@ async def extract_keywords(
 ) -> Keywords:
     """Extract search keywords from ``question``.
 
-    If the model call fails, only the simple keywords are returned, so search
-    still runs without them.
+    If the model call fails with a BAML client or validation error, only the simple
+    keywords are returned, so search still runs without them. Other errors
+    propagate.
 
     Args:
         question: The question text.
@@ -84,7 +87,7 @@ async def extract_keywords(
         )
         names = [k.strip() for k in [*extracted.entities, *extracted.terms]]
         llm = list(dict.fromkeys(name for name in names if name))[:limit]
-    except Exception:
+    except BamlError:
         logger.warning(
             "keyword extraction failed; using simple keywords", exc_info=True
         )
