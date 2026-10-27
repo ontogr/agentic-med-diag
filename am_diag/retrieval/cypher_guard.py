@@ -26,6 +26,7 @@ _TYPE_IN = re.compile(r"\btype\s+IN\s*\[([^\]]*)\]", re.IGNORECASE)
 _QUOTED = re.compile(r"'([^']+)'")
 _LIMIT = re.compile(r"\bLIMIT\s+(\d+)\b", re.IGNORECASE)
 _HAS_LIMIT = re.compile(r"\bLIMIT\b", re.IGNORECASE)
+_RETURN = re.compile(r"\bRETURN\b", re.IGNORECASE)
 _PATH_FEATURES = re.compile(
     r"\b(?:allShortestPaths|shortestPath)\s*\(|\bMATCH\s+[A-Za-z_]\w*\s*=",
     re.IGNORECASE,
@@ -125,12 +126,52 @@ def guard_cypher(
 
 
 def _ensure_limit(cypher: str, default_limit: int, max_limit: int) -> str:
-    """Add a ``LIMIT`` when the query has none and lower any larger one."""
+    """Bound the rows the query returns.
+
+    A ``LIMIT`` of the outermost query is lowered to ``max_limit`` if larger. If
+    the outermost query has none, one is added. Text inside string literals is
+    never changed, and a ``LIMIT`` inside a ``CALL`` or ``COLLECT`` subquery does
+    not count as the outer limit.
+    """
     stripped = cypher.strip().rstrip(";").rstrip()
-    if not _HAS_LIMIT.search(stripped):
-        return f"{stripped}\nLIMIT {default_limit}"
-    return _LIMIT.sub(
-        lambda match: f"LIMIT {min(int(match.group(1)), max_limit)}", stripped
+    bare = _STRING_LITERAL.sub(lambda match: " " * len(match.group(0)), stripped)
+
+    parts: list[str] = []
+    last = 0
+    for match in _LIMIT.finditer(bare):
+        parts.append(stripped[last : match.start()])
+        parts.append(f"LIMIT {min(int(match.group(1)), max_limit)}")
+        last = match.end()
+    parts.append(stripped[last:])
+    bounded = "".join(parts)
+
+    if _has_outer_limit(bare):
+        return bounded
+    return f"{bounded}\nLIMIT {default_limit}"
+
+
+def _has_outer_limit(bare: str) -> bool:
+    """Return True when the outermost query ends with a ``LIMIT``.
+
+    Args:
+        bare: Query text with string literals blanked out.
+    """
+    depths: list[int] = []
+    depth = 0
+    for char in bare:
+        depths.append(depth)
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+
+    outer_return_end = 0
+    for match in _RETURN.finditer(bare):
+        if depths[match.start()] == 0:
+            outer_return_end = match.end()
+    return any(
+        depths[match.start()] == 0
+        for match in _HAS_LIMIT.finditer(bare, outer_return_end)
     )
 
 

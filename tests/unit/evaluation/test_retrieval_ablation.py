@@ -61,6 +61,18 @@ class TestMetrics:
         assert percentile(values, 0.5) == 5.0
         assert percentile(values, 0.95) == 10.0
 
+    @pytest.mark.parametrize(
+        ("count", "fraction", "expected"),
+        [(5, 0.5, 3.0), (5, 0.95, 5.0), (4, 0.5, 2.0), (3, 0.0, 1.0), (3, 1.0, 3.0)],
+    )
+    def test_percentile_rounds_the_rank_up(
+        self, count: int, fraction: float, expected: float
+    ) -> None:
+        """Nearest rank is ceil(fraction * n), so a half rank goes up, not to even."""
+        values = [float(i) for i in range(1, count + 1)]
+
+        assert percentile(values, fraction) == expected
+
     def test_summary_averages_questions(self) -> None:
         """Recall and reciprocal rank are means over the rows."""
         rows = [

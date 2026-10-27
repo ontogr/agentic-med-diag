@@ -52,6 +52,36 @@ class TestGuardCypher:
 
         assert guarded.cypher == "MATCH (n:Entity) RETURN n LIMIT 5"
 
+    def test_limit_inside_a_subquery_does_not_bound_the_outer_query(self) -> None:
+        """A subquery LIMIT stays as written and the outer query still gets one."""
+        cypher = (
+            "MATCH (n:Entity) CALL { WITH n MATCH (n)-[:RELATES_TO]-(m:Entity) "
+            "RETURN m LIMIT 3 } RETURN n.name AS name"
+        )
+
+        guarded = _guard(cypher)
+
+        assert guarded.errors == []
+        assert guarded.cypher == cypher + "\nLIMIT 25"
+
+    def test_limit_text_inside_a_string_is_neither_counted_nor_changed(self) -> None:
+        """A quoted LIMIT is data: it neither satisfies nor is rewritten."""
+        cypher = "MATCH (n:Entity) WHERE n.name = 'LIMIT 5000' RETURN n"
+
+        guarded = _guard(cypher)
+
+        assert guarded.cypher == cypher + "\nLIMIT 25"
+
+    def test_lowers_only_the_limit_that_bounds_the_outer_query(self) -> None:
+        """The outer LIMIT is capped even when a subquery has its own."""
+        guarded = _guard(
+            "MATCH (n:Entity) CALL { WITH n MATCH (n)--(m:Entity) RETURN m LIMIT 3 } "
+            "RETURN n LIMIT 5000"
+        )
+
+        assert guarded.cypher.endswith("RETURN n LIMIT 100")
+        assert "RETURN m LIMIT 3 }" in guarded.cypher
+
     def test_accepts_schema_labels_and_relation_type(self) -> None:
         """Typed labels and a valid relation type produce no errors."""
         guarded = _guard(

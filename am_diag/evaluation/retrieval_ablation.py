@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import statistics
 import time
 from collections.abc import Mapping, Sequence
@@ -43,7 +44,7 @@ def percentile(values: Sequence[float], fraction: float) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    index = min(len(ordered) - 1, max(0, round(fraction * len(ordered)) - 1))
+    index = min(len(ordered) - 1, max(0, math.ceil(fraction * len(ordered)) - 1))
     return ordered[index]
 
 
