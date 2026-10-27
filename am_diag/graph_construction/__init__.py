@@ -24,6 +24,7 @@ from am_diag.graph_construction.extract.gliner_entities import GLiNEREntityExtra
 from am_diag.graph_construction.extract.glirel_relations import GLiRELRelationExtractor
 from am_diag.graph_construction.extract.llm import LLMExtractor
 from am_diag.graph_construction.normalize import EntityRelationNormalizer
+from am_diag.graph_construction.prune import OntologyPruner
 from am_diag.graph_construction.resolve.apply import AliasApplier
 from am_diag.graph_construction.resolve.candidates import build_bm25, top_k
 from am_diag.graph_construction.resolve.cluster import cluster_items
@@ -51,6 +52,7 @@ __all__ = [
     "LeidenCommunityDetector",
     "LLMDeduplicator",
     "LLMExtractor",
+    "OntologyPruner",
     "build_bm25",
     "build_community_context",
     "cluster_items",

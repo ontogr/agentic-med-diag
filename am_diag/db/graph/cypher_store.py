@@ -7,6 +7,8 @@ as entity type labels). No Cypher string literals appear in this file.
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from am_diag.common.cypher.loader import load, render
@@ -17,7 +19,9 @@ from am_diag.common.data_models.document import Document
 from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.knowledge_graph import KnowledgeGraph
 from am_diag.common.data_models.relation import Relation
+from am_diag.common.data_models.schema import GraphSchema
 from am_diag.db.graph.base import GraphStore
+from am_diag.db.graph.errors import OntologyVersionMismatch
 from am_diag.db.graph.serialize import (
     chunk_record,
     community_record,
@@ -26,6 +30,8 @@ from am_diag.db.graph.serialize import (
     has_entity_records,
     has_report_records,
     in_community_records,
+    ontology_entity_records,
+    ontology_pair_records,
     parent_community_records,
     relation_record,
     report_record,
@@ -47,10 +53,14 @@ def _reject_reserved_keys(props: dict[str, Any]) -> None:
 class CypherGraphStore(GraphStore):
     """Shared ingest and administration operations over a Cypher transport."""
 
+    def __init__(self) -> None:
+        """Create the lock that serializes ontology registration."""
+        self._ontology_lock = asyncio.Lock()
+
     async def execute_batch(
         self,
         query: str,
-        records: list[dict[str, Any]],
+        records: Sequence[Mapping[str, Any]],
         batch_size: int = 500,
     ) -> None:
         """Execute ``query`` for each ``batch_size`` slice of ``records``.
@@ -251,6 +261,63 @@ class CypherGraphStore(GraphStore):
         await self.link_in_community(kg.communities)
         await self.link_parent_community(kg.communities)
         await self.link_has_report(kg.reports)
+
+    async def load_ontology(self) -> GraphSchema | None:
+        """Return the ontology mirror stored in the graph, or ``None``."""
+        rows = await self.execute_query(
+            load("ontology/load_ontology"), {}, read_only=True
+        )
+        if not rows:
+            return None
+        return GraphSchema.model_validate_json(rows[0]["schema_json"])
+
+    async def register_ontology(self, schema: GraphSchema) -> None:
+        """Store ``schema`` as the graph's ontology, or confirm it is already stored.
+
+        A definition equal to the stored one is accepted. If only its ``mode``
+        differs, the stored mode is updated. Registrations on one store instance
+        run one at a time; concurrent registrations from separate processes are
+        not coordinated.
+
+        Args:
+            schema: Ontology to mirror into the graph.
+
+        Raises:
+            OntologyVersionMismatch: If the graph holds a different ontology.
+        """
+        async with self._ontology_lock:
+            stored = await self.load_ontology()
+            if stored is not None:
+                stored_fingerprint = stored.fingerprint(include_mode=False)
+                if stored_fingerprint != schema.fingerprint(include_mode=False):
+                    raise OntologyVersionMismatch(stored.version, schema.version)
+                if stored.mode != schema.mode:
+                    await self._write_ontology_meta(schema)
+                return
+            # Without a meta node, any entity or pair records come from an
+            # interrupted registration and may describe another schema.
+            await self.execute_query(load("ontology/clear_mirror"), {})
+            await self.execute_batch(
+                load("ontology/upsert_entity_types"), ontology_entity_records(schema)
+            )
+            await self.execute_batch(
+                load("ontology/upsert_pairs"), ontology_pair_records(schema)
+            )
+            # FalkorDB has no client transactions. Writing the meta node last means
+            # a partial registration leaves nothing to match on load, so the next
+            # call clears it and starts again.
+            await self._write_ontology_meta(schema)
+
+    async def _write_ontology_meta(self, schema: GraphSchema) -> None:
+        """Write the version, mode and full definition to the ontology meta node."""
+        await self.execute_query(
+            load("ontology/upsert_meta"),
+            {
+                "version": schema.version,
+                "mode": schema.mode,
+                "schema_json": schema.model_dump_json(),
+            },
+        )
 
     async def get_entity(self, entity_id: str) -> dict[str, Any] | None:
         """Return one entity row ``{id, labels, props}`` or ``None`` if absent."""

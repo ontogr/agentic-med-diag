@@ -74,12 +74,14 @@ def _entity(name: str, label: str, chunk_ids, extractor=ExtractorName.GLINER) ->
     )
 
 
-def _composed(gliner=None, glirel=None, llm=None) -> ComposedExtractor:
+def _composed(
+    gliner=None, glirel=None, llm=None, schema=MEDICAL_GRAPHRAG_SCHEMA
+) -> ComposedExtractor:
     ext = ComposedExtractor(
         ExtractionPipelineConfig(
             merge_strategy="union", min_entity_length=3, min_entity_score=0.0
         ),
-        MEDICAL_GRAPHRAG_SCHEMA,
+        schema,
     )
     ext._gliner = gliner
     ext._glirel = glirel
@@ -157,3 +159,27 @@ class TestComposedExtractor:
 
         expected = Relation(head_id=head.id, tail_id=tail.id, type="TREATED_BY")
         assert linked[0].id == expected.id
+
+    async def test_drops_relations_that_a_strict_schema_does_not_allow(self):
+        """A strict schema removes extracted relations that break it."""
+        c1 = _chunk("metformin treats type 2 diabetes and can cause nausea")
+        metformin = _entity("metformin", "Drug", [c1.id])
+        diabetes = _entity("type 2 diabetes", "Disease", [c1.id])
+        nausea = _entity("nausea", "Symptom", [c1.id])
+        allowed = Relation(
+            head_name="type 2 diabetes", tail_name="metformin", type="TREATED_BY"
+        )
+        disallowed = Relation(
+            head_name="metformin", tail_name="nausea", type="HAS_SYMPTOM"
+        )
+        strict_schema = MEDICAL_GRAPHRAG_SCHEMA.model_copy(update={"mode": "strict"})
+        ext = _composed(
+            gliner=_FakeGliner([metformin, diabetes, nausea]),
+            glirel=_FakeGlirel([allowed, disallowed]),
+            llm=None,
+            schema=strict_schema,
+        )
+
+        _, relations = await ext.extract([c1])
+
+        assert [r.type for r in relations] == ["TREATED_BY"]

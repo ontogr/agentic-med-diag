@@ -66,6 +66,7 @@ _READ_CASES = {
         {"entity_id", "entity_name", "entity_labels", "edges"},
     ),
     "community/all_entity_edges": ("page", 2, {"source", "target", "score"}),
+    "ontology/load_ontology": ("page", 0, {"version", "schema_json"}),
 }
 _WRITE_CASES = {
     "ingest/upsert_documents",
@@ -85,10 +86,15 @@ _WRITE_CASES = {
     "admin/update_relation",
     "admin/delete_relation",
     "admin/delete_entity",
+    "ontology/upsert_entity_types",
+    "ontology/upsert_pairs",
+    "ontology/upsert_meta",
+    "ontology/clear_mirror",
 }
 _NEO4J_ONLY = {
     "schema/constraints",
     "schema/indexes",
+    "schema/ontology_constraints",
     "community/run_gds_leiden",
     "admin/wipe_graph",
 }

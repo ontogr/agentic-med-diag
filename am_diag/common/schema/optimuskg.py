@@ -11,14 +11,29 @@ The per-edge **semantic** relation (``Relation.type``, e.g. ``EXPRESSION_PRESENT
 enumerated from the Dataverse release 3.2 ``edges.parquet``. A structural label
 missing from the map contributes a single placeholder type (the structural label
 with ``-`` replaced by ``_``).
-Relation types are hints for text2cypher and ``allowed_pairs`` only; they do not
-affect ingestion (``setup_schema`` keys constraints on entity labels).
+Relation types drive text2cypher, ``allowed_pairs`` and ontology pruning of text
+extraction; they do not affect structured ingestion (``setup_schema`` keys
+constraints on entity labels).
+
+To move to a new OptimusKG release, refresh ``SEMANTIC_RELATIONS`` from the new
+``edges.parquet``, update ``OPTIMUSKG_RELEASE``, and build a new graph. A graph is
+tied to the release it was built with.
 """
 
 from __future__ import annotations
 
 from am_diag.common.data_models.schema import EntityType, GraphSchema, RelationType
 
+
+# Dataverse release that ``SEMANTIC_RELATIONS`` was enumerated from.
+OPTIMUSKG_RELEASE = "3.2"
+
+# Term-hierarchy relations and the Gene Ontology node types carry structure
+# rather than facts that text states, so text extractors do not offer them.
+_HIERARCHY_RELATIONS = frozenset({"PARENT", "IS_A"})
+_GO_LABELS = frozenset(
+    {"GoBiologicalProcess", "GoCellularComponent", "GoMolecularFunction"}
+)
 
 # OptimusKG node ``input_label`` abbreviation -> am_diag PascalCase entity label.
 ABBREV_TO_LABEL: dict[str, str] = {
@@ -176,6 +191,7 @@ def _build_entity_types() -> list[EntityType]:
             gliner_label=label,
             description=_LABEL_DESCRIPTIONS[label],
             key_property="curie",
+            extractable=label not in _GO_LABELS,
         )
         for label in labels
     ]
@@ -195,6 +211,7 @@ def _build_relation_types() -> list[RelationType]:
                     head_labels=[head_label],
                     tail_labels=[tail_label],
                     properties=_RELATION_PROPERTIES,
+                    extractable=semantic not in _HIERARCHY_RELATIONS,
                 )
             )
     return relation_types
@@ -204,11 +221,13 @@ ENTITY_TYPES: list[EntityType] = _build_entity_types()
 RELATION_TYPES: list[RelationType] = _build_relation_types()
 
 OPTIMUSKG_SCHEMA = GraphSchema(
+    version=OPTIMUSKG_RELEASE,
     entity_types=ENTITY_TYPES,
     relation_types=RELATION_TYPES,
 )
 
 __all__ = [
+    "OPTIMUSKG_RELEASE",
     "ABBREV_TO_LABEL",
     "STRUCTURAL_LABELS",
     "SEMANTIC_RELATIONS",

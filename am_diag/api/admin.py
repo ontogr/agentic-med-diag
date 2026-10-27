@@ -9,12 +9,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from am_diag.api.errors import RegistryError
+from am_diag.api.errors import OntologyMismatchError, RegistryError
 from am_diag.common.data_models.connection import GraphConnection, VectorConnection
 from am_diag.common.data_models.graph_record import GraphRecord
 from am_diag.common.data_models.project import ProjectRecord
 from am_diag.common.data_models.schema import GraphSchema
 from am_diag.common.schema import MEDICAL_GRAPHRAG_SCHEMA
+from am_diag.db.graph.base import GraphStore
+from am_diag.db.graph.errors import OntologyVersionMismatch
 
 
 if TYPE_CHECKING:
@@ -25,6 +27,14 @@ if TYPE_CHECKING:
 # The admin classes expose a ``.list()`` method that shadows the builtin ``list``
 # inside the class namespace; this alias keeps ``list[...]`` annotations valid.
 _List = list
+
+
+async def _register_ontology(graph_store: GraphStore, schema: GraphSchema) -> None:
+    """Store ``schema`` in the graph, reporting a conflict as an API error."""
+    try:
+        await graph_store.register_ontology(schema)
+    except OntologyVersionMismatch as exc:
+        raise OntologyMismatchError(str(exc)) from exc
 
 
 class GraphAdmin:
@@ -48,14 +58,17 @@ class GraphAdmin:
         """Register a graph, validate connectivity, and install its schema.
 
         The record is persisted first, then its live graph is built eagerly to
-        verify the backend is reachable and to create schema constraints. If
-        validation fails the record is rolled back so no dangling entry remains.
+        verify the backend is reachable, to create schema constraints, and to
+        store the schema's ontology in the graph. A graph is tied to the ontology
+        version it was created with. If validation fails the record is rolled
+        back so no dangling entry remains.
 
         Args:
             graph_id: Caller-chosen unique id.
             neo4j: Neo4j connection metadata.
             vector: Internal vector-store connection metadata.
-            schema: Graph schema. Defaults to the medical GraphRAG schema.
+            schema: Graph schema, including its ontology version and mode.
+                Defaults to the medical GraphRAG schema.
             name: Optional display name.
             description: Optional display description.
 
@@ -67,6 +80,9 @@ class GraphAdmin:
                 graph attached to the workspace.
             ConnectionError: If a referenced env var is unset or the backend is
                 unreachable.
+            OntologyMismatchError: If the backend already stores a different
+                ontology for the graph, such as data left from an earlier graph
+                that was deleted without ``drop_data``.
         """
         if self._pool.has_graph(graph_id):
             raise RegistryError(f"Graph already exists: {graph_id!r}")
@@ -82,6 +98,9 @@ class GraphAdmin:
         try:
             graph = self._pool.graph(graph_id)
             await graph.graph_store.health_check()
+            # Register first so a graph that holds another ontology is rejected
+            # before any constraint is created in it.
+            await _register_ontology(graph.graph_store, schema)
             await graph.graph_store.setup_schema(schema)
         except Exception:
             await self._pool.evict_graph(graph_id)
@@ -105,7 +124,22 @@ class GraphAdmin:
         description: str | None = None,
         schema: GraphSchema | None = None,
     ) -> GraphRecord:
-        """Update display metadata or schema, reconnecting the graph if needed."""
+        """Update display metadata or schema, reconnecting the graph if needed.
+
+        A replacement schema must keep the ontology the graph was created with.
+        It is checked against the ontology stored in the graph before anything is
+        persisted. A graph without a stored ontology records the replacement.
+
+        Raises:
+            GraphNotFoundError: If the graph is not registered.
+            OntologyMismatchError: If the graph already holds a different
+                ontology than ``schema``.
+        """
+        # Resolve the record first so an unknown id fails before any backend write.
+        self._registry.get_graph(graph_id)
+        if schema is not None:
+            graph = self._pool.graph(graph_id)
+            await _register_ontology(graph.graph_store, schema)
         updated = self._registry.update_graph(
             graph_id,
             name=name,

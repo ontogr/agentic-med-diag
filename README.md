@@ -107,6 +107,21 @@ and 25 relation types, grouped by clinical role:
 
 The schema is inspired by SNOMED CT relationship types, the UMLS semantic network, and clinical reasoning patterns.
 
+Two schemas are bundled. Pass `--schema` to `am-diag graphs create` to choose one:
+
+| Schema | Description |
+|--------|-------------|
+| `medical` | The default clinical schema described above. |
+| `optimuskg` | The ontology of [OptimusKG](https://github.com/mims-harvard/OptimusKG) release 3.2, covering diseases, drugs, genes, anatomical structures, phenotypes, pathways, exposures, and Gene Ontology terms. |
+
+The schema fixes the ontology that a graph is tied to. When the graph is created, it stores a copy of the schema's ontology and its version. Pass `--ontology-mode` to set how facts extracted from text are handled when they do not follow the schema:
+
+| Mode | Text-extracted facts that do not follow the schema |
+|------|-----------------------------------------------------|
+| `open` (default) | Kept without a warning. |
+| `warn` | Kept, and a warning is reported. |
+| `strict` | Dropped. |
+
 ## Architecture
 
 The system has two data flows: ingestion (text into a knowledge graph and vector store) and retrieval using an agent.
@@ -325,6 +340,18 @@ uv run am-diag qa --project clinical --datasets careqa,medqa --limit 10
 # Inspect / resume durable jobs
 uv run am-diag jobs list
 ```
+
+To register a graph tied to the OptimusKG schema, pass `--schema optimuskg`. The example below also sets `--ontology-mode warn`. Without these flags, a graph uses the `medical` schema in `open` mode. See [Schema](#schema) for the bundled schemas and modes.
+
+```bash
+uv run am-diag graphs create --graph-id okg \
+    --neo4j-uri bolt://localhost:7687 \
+    --neo4j-user-env NEO4J_USER --neo4j-password-env NEO4J_PASSWORD \
+    --vector-url-env QDRANT_URL \
+    --schema optimuskg --ontology-mode warn
+```
+
+A graph keeps the copy of the ontology it was created with. To move to another ontology or to a newer OptimusKG release, create a new graph and ingest the sources into it again.
 
 ### Programmatic Usage
 

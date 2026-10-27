@@ -43,5 +43,13 @@ class SchemaError(WorkspaceError):
     """A schema or query constraint was violated."""
 
 
+class OntologyMismatchError(SchemaError):
+    """A graph already holds a different ontology than the one requested.
+
+    A graph is tied to the ontology it was created with. Use a new graph to
+    change it.
+    """
+
+
 class JobError(WorkspaceError):
     """A durable job operation failed."""
