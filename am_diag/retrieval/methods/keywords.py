@@ -40,10 +40,18 @@ class Keywords:
     simple: list[str] = field(default_factory=list)
 
 
+def _is_content_word(word: str) -> bool:
+    """Return True when ``word`` can be a search keyword."""
+    if word.lower() in _QUESTION_WORDS:
+        return False
+    return len(word) > 2 or (len(word) == 2 and word.isupper())
+
+
 def simple_keywords(question: str) -> list[str]:
     """Return the content words of ``question``.
 
-    Words of two characters or fewer and common question words are dropped.
+    Common question words and words of one or two characters are dropped, except
+    two-letter all-caps abbreviations such as MI, BP, IV and CT.
 
     Args:
         question: The question text.
@@ -51,11 +59,7 @@ def simple_keywords(question: str) -> list[str]:
     Returns:
         At most 12 words, in question order.
     """
-    words = [
-        word
-        for word in _WORD.findall(question)
-        if len(word) > 2 and word.lower() not in _QUESTION_WORDS
-    ]
+    words = [word for word in _WORD.findall(question) if _is_content_word(word)]
     return words[:_SIMPLE_LIMIT]
 
 

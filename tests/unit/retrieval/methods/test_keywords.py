@@ -27,6 +27,21 @@ class TestSimpleKeywords:
 
         assert simple_keywords(question) == ["chest", "pain"]
 
+    def test_keeps_two_letter_abbreviations(self) -> None:
+        """All-caps abbreviations stay; other short words are dropped."""
+        question = "Does IV fluid help to treat MI, BP or CT findings?"
+
+        assert simple_keywords(question) == [
+            "IV",
+            "fluid",
+            "help",
+            "treat",
+            "MI",
+            "BP",
+            "CT",
+            "findings",
+        ]
+
     def test_caps_the_list(self) -> None:
         """No more than 12 words are returned."""
         question = " ".join(f"term{i}" for i in range(30))
