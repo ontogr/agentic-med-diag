@@ -23,7 +23,7 @@ This repository implements an Agentic GraphRAG system for Medical Diagnosis. It 
 - **Schema-driven knowledge graph** built from a runtime-injectable schema of medical entity and relation types that drives every extractor, resolver, summarizer, and prompt.
 - **Three-extractor fusion** combining GLiNER NER, GLiREL relation extraction, and LLM extraction, merged with configurable union, intersection, max-score, or GLiNER-primary strategies.
 - **Two-stage entity resolution** using a deterministic SemHash/MinHash pre-filter followed by clustering, BM25 + cosine candidate retrieval, and LLM deduplication.
-- **Hierarchical community detection** using the Leiden algorithm (Graspologic or Neo4j GDS), with LLM-generated community reports summarising each cluster.
+- **Hierarchical community detection** using the Leiden algorithm (Graspologic or Neo4j GDS), with a community summarizer module for per-cluster reports. Ingestion and finalization do not call it yet, so graphs have no community reports until it is wired in.
 - **Four vector collections** (entity, relation, chunk, community) for complementary semantic search.
 - **Layered retrieval** combining atomic search methods, pluggable rerankers, and data-only recipes, fused with Reciprocal Rank Fusion or a cross-encoder.
 - **Agentic plan–research–verify loop** that decomposes the question, runs parallel researchers over retrieval tools, and gates synthesis on a deterministic sufficiency check.
@@ -73,8 +73,8 @@ The system stores everything in a single typed property graph in Neo4j or Falkor
 ### Communities
 
 - After resolution, hierarchical Leiden partitions the resolved relation graph into nested communities. Each `Community` records its level, its parent community, and the entities and relations it contains.
-- An LLM generates a `CommunityReport` for each community, bottom-up by level: a title, a summary, structured findings, and a clinical-importance rating. Lower-level reports roll up into higher-level ones.
-- Community reports give the agent a thematic, cluster-level view, so a broad question can be answered from a single summary instead of many low-level facts.
+- The summarizer in `am_diag/graph_construction/community/summarize.py` can produce a `CommunityReport` for each community, bottom-up by level: a title, a summary, structured findings, and a clinical-importance rating. Ingestion and finalization do not call it, so no `CommunityReport` nodes are written yet.
+- Once reports exist, they give the agent a thematic, cluster-level view, so a broad question can be answered from a single summary instead of many low-level facts.
 
 ### Schema
 
@@ -139,11 +139,11 @@ Corpus ingestion streams documents, chunks them, and runs a LangGraph pipeline o
 4. **Aggregate:** A deterministic, zero-LLM set-union across all chunks collapses the same keys into one cross-chunk candidate set.
 5. **Resolve:** Entity and relation-type names are resolved in two stages: a deterministic deduplicator collapses exact and near-exact variants (SemHash, MinHash-LSH) and clusters the residual names; then, within each cluster, BM25 + cosine fusion retrieves candidates and an LLM selects exact duplicates and a single canonical alias. The result writes `canonical_name` and `aliases` onto entities and links relation endpoints to canonical entity ids.
 6. **Detect communities:** Hierarchical Leiden runs over the resolved relation graph. Two interchangeable backends share one base class: graspologic-native (default) and Neo4j GDS (Neo4j graphs only). The output is a tree of communities with levels and parents.
-7. **Summarize:** Communities are walked bottom-up by level; a degree-ranked, token-budgeted context is built for each and passed to an LLM that produces a titled report with structured findings and a clinical-importance rating.
+7. **Summarize (not run by ingestion):** The summarizer module walks communities bottom-up by level, builds a degree-ranked, token-budgeted context for each, and passes it to an LLM that produces a titled report. Neither `--finalize` nor `finalize` calls it, so this step does not run for corpus graphs.
 
 Resolution runs before community detection so the graph is clustered over canonical entities.
 
-Graph loaders (see [Graph loaders](#graph-loaders)) take a shorter path. They read a pre-built biomedical graph and produce typed `Entity` and `Relation` records directly, so they skip chunking and extraction and join the pipeline at finalization. Finalization runs community detection only. It stores the communities and links entities to them, but it does not generate `CommunityReport` summaries, so a graph built only from graph loaders has no community reports.
+Graph loaders (see [Graph loaders](#graph-loaders)) take a shorter path. They read a pre-built biomedical graph and produce typed `Entity` and `Relation` records directly, so they skip chunking and extraction and join the pipeline at finalization. Finalization runs community detection only, for corpus and loader graphs alike. It stores the communities and links entities to them, but it does not generate `CommunityReport` summaries, so no graph has community reports yet.
 
 ## Embedding Pipeline
 
@@ -171,7 +171,7 @@ Retrieval uses a layered design: types of search (Vector, Hybrid, Fulltext, BFS)
 - **Entity retriever** runs hybrid search over entity names, optionally expanding from the matched seed entities with bounded, degree-aware BFS.
 - **Relation retriever** runs hybrid search over the relation collection, then hydrates full edges (head, tail, type, description) from the graph.
 - **Chunk retriever** runs hybrid search over raw passages.
-- **Community retriever** searches community report summaries for thematic answers.
+- **Community retriever** searches community report summaries for thematic answers. It returns nothing until reports exist in the graph.
 - **Text-to-Cypher retriever** has an LLM translate the question into a read-only Cypher query against the schema, with few-shot examples and bounded retry. Each query is checked against the schema's labels and relation types, gets a `LIMIT` if it has none, and is rejected with a reason the model can retry on if it writes or uses an unknown type.
 - **Entity lookup** finds entities by exact name, alias, synonym or substring for keywords an LLM extracts from the question. Each keyword has its own quota.
 - **Expanders** run after the methods, on the entities and chunks they found. They add the facts one and two hops away (with the description or source databases behind each edge), siblings for list questions, chunks that mention the entities, and the entities and neighbouring chunks around matched passages. Hierarchy edges (`PARENT`, `IS_A`) are skipped by default and each seed entity has its own edge cap, so high-degree entities do not flood the result.
