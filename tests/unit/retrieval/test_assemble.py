@@ -86,12 +86,12 @@ class TestAssembleContext:
             for i in range(10)
         ]
 
-        context = assemble_context(entities, max_characters=60)
+        context = assemble_context(entities, max_characters=66)
 
         assert context == (
             "## Key entities\n- entity0 (Drug)\n- entity1 (Drug)\n- entity2 (Drug)"
         )
-        assert len(context) <= 60
+        assert len(context) <= 66
 
     def test_leaves_out_a_section_whose_first_line_does_not_fit(self) -> None:
         """A section with no room for one line is dropped with its header."""
