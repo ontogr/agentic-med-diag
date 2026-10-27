@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from am_diag.retrieval.filters import SearchFilters
 
 
@@ -104,3 +106,19 @@ class TestSearchFiltersToCypherWhere:
         clause, params = filters.to_cypher_where()
         assert "n.verified" in clause
         assert params["verified"] is True
+
+
+class TestCypherIdentifierValidation:
+    """Labels and property keys are written into Cypher, so unsafe ones fail."""
+
+    @pytest.mark.parametrize("label", ["Drug) OR (n", "drug", "Dru g", "Drug`"])
+    def test_rejects_unsafe_label(self, label: str) -> None:
+        """A label that is not PascalCase never reaches the query text."""
+        with pytest.raises(ValueError, match="label"):
+            SearchFilters(labels=[label]).to_cypher_where()
+
+    @pytest.mark.parametrize("key", ["x = 1 OR n.y", "a.b", "1abc", "k`"])
+    def test_rejects_unsafe_property_key(self, key: str) -> None:
+        """A property key that is not a plain identifier is refused."""
+        with pytest.raises(ValueError, match="identifier"):
+            SearchFilters(properties={key: 1}).to_cypher_where()
