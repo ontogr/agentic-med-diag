@@ -20,7 +20,7 @@ from .globals import DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIM
 class TypeBuilder(type_builder.TypeBuilder):
     def __init__(self):
         super().__init__(classes=set(
-          ["AnswerEquivalenceJudgement","ClusterDeduplicationVerdict","CommunityReportOutput","CypherQuery","DiagnosisJudgement","ExtractedEntity","ExtractedKnowledgeGraph","ExtractedRelation","Finding","MapKeyPoint","MapResponse","ReasoningMatch","ReasoningRecallJudgement","ReduceAnswer","Resume","RubricCriterionJudgement","SamenessVerdict",]
+          ["AnswerEquivalenceJudgement","ClusterDeduplicationVerdict","CommunityReportOutput","CypherQuery","DiagnosisJudgement","ExtractedEntity","ExtractedKnowledgeGraph","ExtractedRelation","Finding","MapKeyPoint","MapResponse","QueryKeywords","ReasoningMatch","ReasoningRecallJudgement","ReduceAnswer","Resume","RubricCriterionJudgement","SamenessVerdict",]
         ), enums=set(
           ["EntityType","RelationType",]
         ), runtime=DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIME)
@@ -39,7 +39,7 @@ class TypeBuilder(type_builder.TypeBuilder):
 
 
     # #########################################################################
-    # Generated classes 17
+    # Generated classes 18
     # #########################################################################
 
     @property
@@ -85,6 +85,10 @@ class TypeBuilder(type_builder.TypeBuilder):
     @property
     def MapResponse(self) -> "MapResponseViewer":
         return MapResponseViewer(self)
+
+    @property
+    def QueryKeywords(self) -> "QueryKeywordsViewer":
+        return QueryKeywordsViewer(self)
 
     @property
     def ReasoningMatch(self) -> "ReasoningMatchViewer":
@@ -206,7 +210,7 @@ class RelationTypeValues:
 
 
 # #########################################################################
-# Generated classes 17
+# Generated classes 18
 # #########################################################################
 
 class AnswerEquivalenceJudgementAst:
@@ -730,6 +734,49 @@ class MapResponseProperties:
     @property
     def points(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("points"))
+    
+    
+
+
+class QueryKeywordsAst:
+    def __init__(self, tb: type_builder.TypeBuilder):
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        self._bldr = _tb.class_("QueryKeywords")
+        self._properties: typing.Set[str] = set([  "entities",  "terms",  ])
+        self._props = QueryKeywordsProperties(self._bldr, self._properties)
+
+    def type(self) -> baml_py.FieldType:
+        return self._bldr.field()
+
+    @property
+    def props(self) -> "QueryKeywordsProperties":
+        return self._props
+
+
+class QueryKeywordsViewer(QueryKeywordsAst):
+    def __init__(self, tb: type_builder.TypeBuilder):
+        super().__init__(tb)
+
+    
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+    
+
+
+class QueryKeywordsProperties:
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+        self.__bldr = bldr
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+    
+    
+    @property
+    def entities(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("entities"))
+    
+    @property
+    def terms(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("terms"))
     
     
 

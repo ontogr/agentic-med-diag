@@ -45,6 +45,7 @@ def _baml(*cyphers: str) -> MagicMock:
 def graph() -> MagicMock:
     """Return a graph store whose queries succeed with one arbitrary row."""
     store = MagicMock(spec=GraphStore)
+    store.dialect = "neo4j"
     store.execute_query = AsyncMock(return_value=[{"drug": "metformin", "n": 3}])
     return store
 
@@ -59,13 +60,15 @@ class TestText2CypherRetriever:
 
         calls = graph.execute_query.call_args_list
         assert [c.kwargs.get("read_only") for c in calls] == [True]
-        graph.explain.assert_awaited_once_with("MATCH (n:Entity) RETURN n.name AS name")
+        graph.explain.assert_awaited_once_with(
+            "MATCH (n:Entity) RETURN n.name AS name\nLIMIT 25"
+        )
         assert [r.item.values for r in results] == [{"drug": "metformin", "n": 3}]
 
     async def test_returns_empty_when_read_only_execution_fails(self, graph):
         """Verify a write rejected by the server yields no results, not a crash."""
         graph.execute_query.side_effect = GraphWriteRejected("write")
-        with patch(_BAML_TARGET, _baml("MATCH (n) DETACH DELETE n")):
+        with patch(_BAML_TARGET, _baml("MATCH (n) RETURN n")):
             results = await _retriever(graph).retrieve("wipe everything")
 
         assert results == []
@@ -76,7 +79,9 @@ class TestText2CypherRetriever:
         with patch(_BAML_TARGET, _baml("invalid", "RETURN 1")):
             results = await _retriever(graph).retrieve("anything")
 
-        graph.execute_query.assert_awaited_once_with("RETURN 1", read_only=True)
+        graph.execute_query.assert_awaited_once_with(
+            "RETURN 1\nLIMIT 25", read_only=True
+        )
         assert [r.item.values for r in results] == [{"drug": "metformin", "n": 3}]
 
     async def test_never_executes_queries_rejected_by_explain(self, graph):
@@ -111,3 +116,33 @@ class TestText2CypherRetriever:
 
         assert results == []
         graph.execute_query.assert_not_called()
+
+
+class TestText2CypherGuard:
+    """Generated queries are checked before they reach the database."""
+
+    async def test_retry_prompt_carries_the_validation_error(self, graph):
+        """A query with an unknown label is replaced; the model sees why."""
+        baml = _baml("MATCH (n:Zzz) RETURN n", "MATCH (n:Entity) RETURN n LIMIT 5")
+        with patch(_BAML_TARGET, baml):
+            results = await _retriever(graph).retrieve("anything")
+
+        calls = baml.GenerateCypherQuery.await_args_list
+        assert len(calls) == 2
+        assert calls[0].args[3] == ""
+        assert "Unknown node labels ['Zzz']" in calls[1].args[3]
+        graph.execute_query.assert_awaited_once_with(
+            "MATCH (n:Entity) RETURN n LIMIT 5", read_only=True
+        )
+        assert [r.item.values for r in results] == [{"drug": "metformin", "n": 3}]
+
+    async def test_write_query_never_reaches_the_database(self, graph):
+        """A write clause is rejected before EXPLAIN or execution."""
+        with patch(
+            _BAML_TARGET, _baml("MATCH (n) DETACH DELETE n", "MATCH (n) SET n.x = 1")
+        ):
+            results = await _retriever(graph).retrieve("wipe everything")
+
+        assert results == []
+        graph.explain.assert_not_awaited()
+        graph.execute_query.assert_not_awaited()
