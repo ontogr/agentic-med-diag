@@ -1,13 +1,15 @@
-"""Name-to-class registries for corpus loaders, graph loaders, and QA datasets.
+"""Name-keyed registries for corpus loaders, graph loaders, QA datasets, and schemas.
 
-The CLI resolves ``--source corpus:<name>``, ``--source loader:<name>:<dir>`` and
-``--datasets`` selections against these registries.
+The CLI resolves ``--source corpus:<name>``, ``--source loader:<name>:<dir>``,
+``--datasets`` selections, and ``graphs create --schema`` against these registries.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
+from am_diag.common.data_models.schema import GraphSchema
+from am_diag.common.schema import MEDICAL_GRAPHRAG_SCHEMA, OPTIMUSKG_SCHEMA
 from am_diag.loaders.corpus.base import CorpusLoader
 from am_diag.loaders.corpus.clinical_guidelines import ClinicalGuidelinesCorpusLoader
 from am_diag.loaders.corpus.pubmed import PubMedCorpusLoader
@@ -96,9 +98,15 @@ DATASET_REGISTRY: dict[str, type[QADataset]] = {
     "supergpqa_med": SuperGPQAMedDataset,
 }
 
+SCHEMA_REGISTRY: dict[str, GraphSchema] = {
+    "medical": MEDICAL_GRAPHRAG_SCHEMA,
+    "optimuskg": OPTIMUSKG_SCHEMA,
+}
+
 
 __all__ = [
     "CORPUS_LOADER_REGISTRY",
     "DATASET_REGISTRY",
     "GRAPH_LOADER_REGISTRY",
+    "SCHEMA_REGISTRY",
 ]

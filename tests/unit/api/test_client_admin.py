@@ -18,6 +18,8 @@ from am_diag.api.errors import GraphNotFoundError, RegistryError
 from am_diag.api.graph import Graph
 from am_diag.api.workspace import Workspace
 from am_diag.common.data_models.connection import GraphConnection, VectorConnection
+from am_diag.db.graph.base import GraphStore
+from am_diag.db.graph.errors import OntologyVersionMismatch
 from am_diag.db.graph.settings import Neo4jSettings
 from am_diag.db.vector.settings import QdrantSettings
 
@@ -107,6 +109,25 @@ class TestGraphAdmin:
             await client.graphs.create("med", neo4j=_neo4j(), vector=_vector())
         assert await client.graphs.list() == []
         mock_driver.close.assert_awaited()
+
+    async def test_ontology_conflict_rolls_back_and_closes_store(
+        self, client, monkeypatch
+    ):
+        """Verify an ontology conflict removes the record and closes the store."""
+        _set_env(monkeypatch)
+        store = MagicMock(spec=GraphStore)
+        store.health_check = AsyncMock(return_value=True)
+        store.setup_schema = AsyncMock()
+        store.register_ontology = AsyncMock(
+            side_effect=OntologyVersionMismatch(stored="3.2", requested="unversioned")
+        )
+        with (
+            patch("am_diag.api.graph.create_graph_store", return_value=store),
+            pytest.raises(OntologyVersionMismatch),
+        ):
+            await client.graphs.create("med", neo4j=_neo4j(), vector=_vector())
+        assert await client.graphs.list() == []
+        store.close.assert_awaited()
 
     async def test_create_rejects_id_of_attached_graph(
         self, client, mock_driver, monkeypatch

@@ -19,6 +19,7 @@ from am_diag.cli.registries import (
     CORPUS_LOADER_REGISTRY,
     DATASET_REGISTRY,
     GRAPH_LOADER_REGISTRY,
+    SCHEMA_REGISTRY,
 )
 from am_diag.common.data_models.connection import GraphConnection, VectorConnection
 from am_diag.loaders.graph.base import GraphLoader
@@ -125,6 +126,24 @@ def _add_graphs(sub: Any) -> None:
     )
     g_create.add_argument("--vector-api-key-env", default=None)
     g_create.add_argument("--name", default=None)
+    g_create.add_argument(
+        "--schema",
+        choices=list(SCHEMA_REGISTRY),
+        default="medical",
+        help=(
+            "Bundled ontology the graph is tied to. The schema is fixed when the "
+            "graph is created (default: medical)"
+        ),
+    )
+    g_create.add_argument(
+        "--ontology-mode",
+        choices=["open", "warn", "strict"],
+        default="open",
+        help=(
+            "Handling of text-extracted facts that break the ontology: open keeps "
+            "them, warn keeps them with a warning, strict drops them (default: open)"
+        ),
+    )
     g_sub.add_parser("list", help="List graphs")
     g_delete = g_sub.add_parser("delete", help="Delete a graph")
     g_delete.add_argument("--graph-id", required=True)
@@ -257,6 +276,10 @@ async def _handle_graphs(client: Workspace, args: argparse.Namespace) -> None:
                 password_env=args.neo4j_password_env,
                 database=args.neo4j_database,
             )
+        # Copy the bundled schema so the mode override never mutates the registry.
+        schema = SCHEMA_REGISTRY[args.schema].model_copy(
+            update={"mode": args.ontology_mode}, deep=True
+        )
         rec = await client.graphs.create(
             args.graph_id,
             neo4j=connection,
@@ -265,6 +288,7 @@ async def _handle_graphs(client: Workspace, args: argparse.Namespace) -> None:
                 url_env=args.vector_url_env or f"{args.vector_backend.upper()}_URL",
                 api_key_env=args.vector_api_key_env,
             ),
+            schema=schema,
             name=args.name,
         )
         print(f"Created graph {rec.graph_id}")

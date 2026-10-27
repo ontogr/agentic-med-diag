@@ -20,6 +20,7 @@ from am_diag.cli.registries import (
     GRAPH_LOADER_REGISTRY,
 )
 from am_diag.common.data_models.job import JobItem, JobProgress, JobRecord
+from am_diag.common.schema import MEDICAL_GRAPHRAG_SCHEMA, OPTIMUSKG_SCHEMA
 from am_diag.loaders.corpus.pubmed import PubMedCorpusLoader
 from am_diag.loaders.graph.drugbank import DrugBankGraphLoader
 from am_diag.loaders.graph.gene_ontology import GeneOntologyGraphLoader
@@ -76,6 +77,25 @@ class TestParser:
         with pytest.raises(SystemExit):
             build_parser().parse_args(
                 ["qa", "--project", "p", "--datasets", "medqa", "--limit", limit]
+            )
+
+    @pytest.mark.parametrize(
+        "extra_args",
+        [["--schema", "unknown"], ["--ontology-mode", "loose"]],
+    )
+    def test_graphs_create_rejects_unknown_schema_or_mode(self, extra_args):
+        """Verify graphs create exits on a schema or ontology mode it does not offer."""
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(
+                [
+                    "graphs",
+                    "create",
+                    "--graph-id",
+                    "g",
+                    "--neo4j-uri",
+                    "bolt://h",
+                    *extra_args,
+                ]
             )
 
     def test_missing_subcommand_errors(self):
@@ -135,7 +155,79 @@ class TestBuildSource:
 
 
 class TestGraphsCreate:
-    """Tests for the vector connection built by ``graphs create``."""
+    """Tests for the connection, vector, and schema built by ``graphs create``."""
+
+    async def test_schema_defaults_to_medical_in_open_mode(self):
+        """Verify graphs create passes the medical schema in open mode by default."""
+        client = SimpleNamespace(
+            graphs=SimpleNamespace(
+                create=AsyncMock(return_value=SimpleNamespace(graph_id="g"))
+            )
+        )
+        args = build_parser().parse_args(
+            ["graphs", "create", "--graph-id", "g", "--neo4j-uri", "bolt://h"]
+        )
+
+        await cli_main._handle_graphs(client, args)
+
+        schema = client.graphs.create.await_args.kwargs["schema"]
+        assert schema == MEDICAL_GRAPHRAG_SCHEMA
+        assert schema.mode == "open"
+
+    async def test_schema_and_ontology_mode_are_passed_to_create(self):
+        """Verify --schema and --ontology-mode select the schema graph create gets."""
+        client = SimpleNamespace(
+            graphs=SimpleNamespace(
+                create=AsyncMock(return_value=SimpleNamespace(graph_id="g"))
+            )
+        )
+        args = build_parser().parse_args(
+            [
+                "graphs",
+                "create",
+                "--graph-id",
+                "g",
+                "--neo4j-uri",
+                "bolt://h",
+                "--schema",
+                "optimuskg",
+                "--ontology-mode",
+                "warn",
+            ]
+        )
+
+        await cli_main._handle_graphs(client, args)
+
+        schema = client.graphs.create.await_args.kwargs["schema"]
+        assert schema.version == "3.2"
+        assert schema.mode == "warn"
+
+    async def test_ontology_mode_override_leaves_bundled_schema_unchanged(self):
+        """Verify overriding the mode on the CLI does not mutate the bundled schema."""
+        client = SimpleNamespace(
+            graphs=SimpleNamespace(
+                create=AsyncMock(return_value=SimpleNamespace(graph_id="g"))
+            )
+        )
+        args = build_parser().parse_args(
+            [
+                "graphs",
+                "create",
+                "--graph-id",
+                "g",
+                "--neo4j-uri",
+                "bolt://h",
+                "--schema",
+                "optimuskg",
+                "--ontology-mode",
+                "strict",
+            ]
+        )
+
+        await cli_main._handle_graphs(client, args)
+
+        assert client.graphs.create.await_args.kwargs["schema"].mode == "strict"
+        assert OPTIMUSKG_SCHEMA.mode == "open"
 
     async def test_falkordb_inline_credentials_are_not_registered(self):
         """Reject URL secrets before they reach the registry writer."""

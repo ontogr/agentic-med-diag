@@ -48,14 +48,17 @@ class GraphAdmin:
         """Register a graph, validate connectivity, and install its schema.
 
         The record is persisted first, then its live graph is built eagerly to
-        verify the backend is reachable and to create schema constraints. If
-        validation fails the record is rolled back so no dangling entry remains.
+        verify the backend is reachable, to create schema constraints, and to
+        store the schema's ontology in the graph. A graph is tied to the ontology
+        version it was created with. If validation fails the record is rolled
+        back so no dangling entry remains.
 
         Args:
             graph_id: Caller-chosen unique id.
             neo4j: Neo4j connection metadata.
             vector: Internal vector-store connection metadata.
-            schema: Graph schema. Defaults to the medical GraphRAG schema.
+            schema: Graph schema, including its ontology version and mode.
+                Defaults to the medical GraphRAG schema.
             name: Optional display name.
             description: Optional display description.
 
@@ -67,6 +70,9 @@ class GraphAdmin:
                 graph attached to the workspace.
             ConnectionError: If a referenced env var is unset or the backend is
                 unreachable.
+            OntologyVersionMismatch: If the backend already stores a different
+                ontology for the graph, such as data left from an earlier graph
+                that was deleted without ``drop_data``.
         """
         if self._pool.has_graph(graph_id):
             raise RegistryError(f"Graph already exists: {graph_id!r}")
@@ -83,6 +89,7 @@ class GraphAdmin:
             graph = self._pool.graph(graph_id)
             await graph.graph_store.health_check()
             await graph.graph_store.setup_schema(schema)
+            await graph.graph_store.register_ontology(schema)
         except Exception:
             await self._pool.evict_graph(graph_id)
             self._registry.remove_graph(graph_id)
