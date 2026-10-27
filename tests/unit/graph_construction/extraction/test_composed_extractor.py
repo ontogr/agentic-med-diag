@@ -18,6 +18,7 @@ from am_diag.common.data_models.enums import ExtractorName
 from am_diag.common.data_models.provenance import Provenance
 from am_diag.common.data_models.relation import Relation
 from am_diag.common.schema import MEDICAL_GRAPHRAG_SCHEMA
+from am_diag.common.schema.optimuskg import OPTIMUSKG_SCHEMA
 from am_diag.graph_construction.config import ExtractionPipelineConfig
 from am_diag.graph_construction.extract.composed import ComposedExtractor
 
@@ -159,6 +160,86 @@ class TestComposedExtractor:
 
         expected = Relation(head_id=head.id, tail_id=tail.id, type="TREATED_BY")
         assert linked[0].id == expected.id
+
+    def test_link_endpoints_resolves_duplicate_names_from_allowed_pairs(self):
+        """A unique allowed label pair selects the correct duplicate-name entity."""
+        drug = _entity("insulin", "Drug", [])
+        gene = _entity("insulin", "Gene", [])
+        disease = _entity("diabetes", "Disease", [])
+        relation = Relation(
+            head_name="insulin",
+            tail_name="diabetes",
+            type="INDICATION",
+        )
+        allowed = frozenset(OPTIMUSKG_SCHEMA.allowed_pairs(extractable_only=True))
+
+        linked = ComposedExtractor._link_endpoints(
+            [drug, gene, disease], [relation], allowed
+        )
+
+        assert len(linked) == 1
+        assert linked[0].head_id == drug.id
+        assert linked[0].tail_id == disease.id
+
+    def test_link_endpoints_drops_duplicate_names_when_multiple_pairs_fit(self):
+        """Ambiguous matching stays unresolved when more than one pair is valid."""
+        gene = _entity("insulin", "Gene", [])
+        pathway = _entity("insulin", "Pathway", [])
+        target = _entity("glucose", "Gene", [])
+        relation = Relation(
+            head_name="insulin",
+            tail_name="glucose",
+            type="INTERACTS_WITH",
+        )
+        allowed = frozenset(OPTIMUSKG_SCHEMA.allowed_pairs(extractable_only=True))
+
+        linked = ComposedExtractor._link_endpoints(
+            [gene, pathway, target], [relation], allowed
+        )
+
+        assert linked == []
+
+    def test_link_endpoints_does_not_reverse_allowed_endpoint_pairs(self):
+        """An allowed pair in reverse cannot resolve duplicate endpoint names."""
+        disease = _entity("insulin", "Disease", [])
+        gene = _entity("insulin", "Gene", [])
+        drug = _entity("metformin", "Drug", [])
+        relation = Relation(
+            head_name="insulin",
+            tail_name="metformin",
+            type="INDICATION",
+        )
+        allowed = frozenset(OPTIMUSKG_SCHEMA.allowed_pairs(extractable_only=True))
+
+        linked = ComposedExtractor._link_endpoints(
+            [disease, gene, drug], [relation], allowed
+        )
+
+        assert linked == []
+
+    async def test_extraction_links_duplicate_names_using_schema_pairs(self):
+        """The pipeline keeps relations with resolvable duplicate endpoint names."""
+        chunk = _chunk("insulin is indicated for diabetes")
+        drug = _entity("insulin", "Drug", [chunk.id])
+        gene = _entity("insulin", "Gene", [chunk.id])
+        disease = _entity("diabetes", "Disease", [chunk.id])
+        relation = Relation(
+            head_name="insulin",
+            tail_name="diabetes",
+            type="INDICATION",
+        )
+        schema = OPTIMUSKG_SCHEMA.model_copy(update={"mode": "strict"})
+        extractor = _composed(
+            gliner=_FakeGliner([drug, gene, disease]),
+            glirel=_FakeGlirel([relation]),
+            schema=schema,
+        )
+
+        _, relations = await extractor.extract([chunk])
+
+        assert len(relations) == 1
+        assert relations[0].head_id == drug.id
+        assert relations[0].tail_id == disease.id
 
     async def test_drops_relations_that_a_strict_schema_does_not_allow(self):
         """A strict schema removes extracted relations that break it."""

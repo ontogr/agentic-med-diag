@@ -49,6 +49,9 @@ type_map = {
     "types.MapResponse": types.MapResponse,
     "stream_types.MapResponse": stream_types.MapResponse,
 
+    "types.QueryKeywords": types.QueryKeywords,
+    "stream_types.QueryKeywords": stream_types.QueryKeywords,
+
     "types.ReasoningMatch": types.ReasoningMatch,
     "stream_types.ReasoningMatch": stream_types.ReasoningMatch,
 

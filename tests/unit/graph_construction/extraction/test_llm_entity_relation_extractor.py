@@ -8,11 +8,12 @@ from uuid import uuid4
 from am_diag.common.data_models import Chunk
 from am_diag.common.data_models.schema import EntityType, GraphSchema, RelationType
 from am_diag.common.schema import MEDICAL_GRAPHRAG_SCHEMA
+from am_diag.common.schema.optimuskg import OPTIMUSKG_SCHEMA
 from am_diag.graph_construction.config import ExtractionPipelineConfig
 from am_diag.graph_construction.extract.llm import (
     LLMExtractor as LLMEntityRelationExtractor,
 )
-from am_diag.graph_construction.extract.llm import _flatten_kg
+from am_diag.graph_construction.extract.llm import _call_llm, _flatten_kg
 
 
 def _make_chunk(
@@ -220,3 +221,18 @@ class TestLLMEntityRelationExtractor:
         mock_call.assert_awaited_once()
         assert len(entities) == 0
         assert len(relations) == 0
+
+    async def test_call_llm_passes_allowed_relation_pairs(self):
+        """The BAML call receives the endpoint pairs for its dynamic relation types."""
+        with patch(
+            "am_diag.llm.baml_client.b.ExtractKnowledgeGraph",
+            new_callable=AsyncMock,
+        ) as mock_call:
+            await _call_llm("text", "source", OPTIMUSKG_SCHEMA)
+
+        mock_call.assert_awaited_once()
+        assert mock_call.call_args.args == (
+            "text",
+            "source",
+            OPTIMUSKG_SCHEMA.relation_guide(),
+        )

@@ -133,7 +133,7 @@ Corpus ingestion streams documents, chunks them, and runs a LangGraph pipeline o
 1. **Extract:** Each chunk is processed by up to three extractors that share the injected schema:
    - **GLiNER** runs batch zero-shot NER, steered by each entity type's natural-language label.
    - **GLiREL** runs zero-shot relation extraction over GLiNER's entity spans, so GLiREL requires GLiNER.
-   - **LLM** runs a BAML extraction function with the valid entity and relation types injected as dynamic enums, constraining the model to the schema. Chunks are processed concurrently with bounded concurrency and isolated retries.
+   - **LLM** runs a BAML extraction function with dynamic entity and relation enums plus the allowed head-tail type pairs, constraining the model to the schema. Chunks are processed concurrently with bounded concurrency and isolated retries.
 2. **Combine:** The three extractor outputs are merged per chunk using a configurable strategy: `union` (superset, merging provenance), `intersection` (only items every extractor found), `max_score` (highest-confidence version), or `gliner_primary` (GLiNER spans supplemented by the LLM).
 3. **Normalize:** Within a chunk, entities are deduplicated by `(normalized name, label)` and relations by `(normalized head, normalized tail, type)`, merging sources, surface forms, chunk ids, scores, and properties. Low-confidence and too-short entities are filtered.
 4. **Aggregate:** A deterministic, zero-LLM set-union across all chunks collapses the same keys into one cross-chunk candidate set.
@@ -172,7 +172,9 @@ Retrieval uses a layered design: types of search (Vector, Hybrid, Fulltext, BFS)
 - **Relation retriever** runs hybrid search over the relation collection, then hydrates full edges (head, tail, type, description) from the graph.
 - **Chunk retriever** runs hybrid search over raw passages.
 - **Community retriever** searches community report summaries for thematic answers.
-- **Text-to-Cypher retriever** has an LLM translate the question into a read-only Cypher query against the schema, with few-shot examples and bounded retry.
+- **Text-to-Cypher retriever** has an LLM translate the question into a read-only Cypher query against the schema, with few-shot examples and bounded retry. Each query is checked against the schema's labels and relation types, gets a `LIMIT` if it has none, and is rejected with a reason the model can retry on if it writes or uses an unknown type.
+- **Entity lookup** finds entities by exact name, alias, synonym or substring for keywords an LLM extracts from the question. Each keyword has its own quota.
+- **Expanders** run after the methods, on the entities and chunks they found. They add the facts one and two hops away (with the description or source databases behind each edge), siblings for list questions, chunks that mention the entities, and the entities and neighbouring chunks around matched passages. Hierarchy edges (`PARENT`, `IS_A`) are skipped by default and each seed entity has its own edge cap, so high-degree entities do not flood the result.
 
 Recipes are data-only constants that select which methods to run and how to fuse them, so a new strategy requires no orchestration change.
 
@@ -183,8 +185,16 @@ Recipes are data-only constants that select which methods to run and how to fuse
 | `hybrid_cross_encoder` | all four + BFS | cross-encoder |
 | `bfs_expand` | entity + BFS | RRF |
 | `text2cypher` | text-to-Cypher | RRF |
+| `facts` | relation search returned as filtered facts | RRF |
+| `entity_lookup` | keyword entity lookup + entity | RRF |
+| `relation_expand` | entity + 1-hop and 2-hop facts | RRF |
+| `enumerate` | entity lookup + entity + siblings | RRF |
+| `chunk_multi_path` | chunk + chunk keywords + mention and 2-hop chunks | cosine |
+| `local` | chunk + local context | RRF |
+| `multi_path` | relation + entity lookup + entity + chunk + chunk keywords + community, with all expanders | cosine |
+| `multi_path_cypher` | `multi_path` + text-to-Cypher | cosine |
 
-Results from the recipe's methods are gathered concurrently and fused with Reciprocal Rank Fusion or a cross-encoder reranker. MMR and node-distance rerankers are also available. Fusion degrades gracefully, ignoring any method that returns no results.
+Results from the recipe's methods are gathered concurrently, then its expanders run, and the combined lists are fused with Reciprocal Rank Fusion, a cross-encoder reranker, or cosine similarity to the query (chunks are reordered among the positions fusion gave them; other results keep their place). Fusion degrades gracefully, ignoring any method that returns no results. Rows from text-to-Cypher skip fusion: they come first, unchanged, and do not count against the recipe's `limit`. Entity ids in those rows still seed the expanders. Returned chunks are labelled with their source document's title. The agent's `multi_path` tool returns a sectioned context (an answer-format hint, graph query results, entities, relationships, passages) next to the raw results.
 
 ## Agentic RAG Loop
 

@@ -62,6 +62,61 @@ _LABEL_DESCRIPTIONS: dict[str, str] = {
     "Pathway": "Biological pathway (Reactome).",
 }
 
+_TEXT_ENTITY_LABELS: dict[str, str] = {
+    "AnatomicalStructure": "anatomical structure, organ, tissue, or body part",
+    "GoBiologicalProcess": "biological process",
+    "GoCellularComponent": "cellular component or subcellular location",
+    "Disease": "disease, disorder, syndrome, condition, or neoplasm",
+    "Drug": "drug, medication, or pharmaceutical agent",
+    "Exposure": "environmental exposure, toxin, or chemical exposure",
+    "Gene": "gene, gene product, or protein",
+    "GoMolecularFunction": "molecular function",
+    "Phenotype": "symptom, clinical sign, or phenotypic abnormality",
+    "Pathway": "biochemical or signaling pathway",
+}
+
+_RELATION_DESCRIPTIONS: dict[str, str] = {
+    "INDICATION": "drug is indicated for (approved to treat) a disease or phenotype",
+    "CONTRAINDICATION": "drug is contraindicated in a disease or phenotype",
+    "OFF_LABEL_USE": "drug is used off label for a disease or phenotype",
+    "ADVERSE_DRUG_REACTION": "drug causes an adverse reaction (a phenotype)",
+    "PHENOTYPE_PRESENT": "disease presents with a phenotype (symptom or sign)",
+    "ASSOCIATED_WITH": (
+        "disease or phenotype is associated with a gene, or a drug with a phenotype"
+    ),
+    "EXPRESSION_PRESENT": "gene is expressed in an anatomical structure",
+    "EXPRESSION_ABSENT": "gene is not expressed in an anatomical structure",
+    "SYNERGISTIC_INTERACTION": "two drugs act synergistically",
+    "LINKED_TO": "environmental exposure is linked to a disease",
+    "INTERACTS_WITH": (
+        "two genes or gene products interact, or a pathway involves a gene"
+    ),
+    "PARENT": "term is a child of a broader term of the same kind",
+    "IS_A": "term is a subtype of a broader term",
+}
+
+_GLIREL_TYPES = frozenset(
+    {
+        "INDICATION",
+        "CONTRAINDICATION",
+        "ADVERSE_DRUG_REACTION",
+        "PHENOTYPE_PRESENT",
+        "ASSOCIATED_WITH",
+        "EXPRESSION_PRESENT",
+        "SYNERGISTIC_INTERACTION",
+        "LINKED_TO",
+        "INTERACTS_WITH",
+    }
+)
+
+
+def _relation_description(relation_type: str) -> str:
+    """Return the plain-language meaning of an OptimusKG relation type."""
+    if relation_type in _RELATION_DESCRIPTIONS:
+        return _RELATION_DESCRIPTIONS[relation_type]
+    return f"drug acts on a gene product as {relation_type.lower().replace('_', ' ')}"
+
+
 # 27 OptimusKG edge ``input_label`` values (structural ``HEAD-TAIL``).
 STRUCTURAL_LABELS: list[str] = [
     "ANA-GEN",
@@ -188,7 +243,7 @@ def _build_entity_types() -> list[EntityType]:
     return [
         EntityType(
             label=label,
-            gliner_label=label,
+            gliner_label=_TEXT_ENTITY_LABELS[label],
             description=_LABEL_DESCRIPTIONS[label],
             key_property="curie",
             extractable=label not in _GO_LABELS,
@@ -207,11 +262,16 @@ def _build_relation_types() -> list[RelationType]:
             relation_types.append(
                 RelationType(
                     type=semantic,
-                    glirel_label=semantic,
+                    glirel_label=(
+                        _relation_description(semantic)
+                        if semantic in _GLIREL_TYPES
+                        else ""
+                    ),
                     head_labels=[head_label],
                     tail_labels=[tail_label],
                     properties=_RELATION_PROPERTIES,
                     extractable=semantic not in _HIERARCHY_RELATIONS,
+                    description=_relation_description(semantic),
                 )
             )
     return relation_types

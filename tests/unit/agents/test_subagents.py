@@ -34,7 +34,7 @@ class TestBuildSubagents:
             assert "SufficientContext" in str(config["response_format"])
 
     def test_researcher_has_tools(self) -> None:
-        """Researcher subagent is configured with 7 tools."""
+        """Researcher subagent is configured with 11 tools."""
         with patch("am_diag.agents.subagents.build_chat_model") as mock_build:
             mock_build.return_value = MagicMock()
             engine = MagicMock(spec=SearchEngine)
@@ -42,7 +42,7 @@ class TestBuildSubagents:
             config = build_researcher_subagent(engine)
             assert config["name"] == "researcher"
             assert "tools" in config
-            assert len(config["tools"]) == 7
+            assert len(config["tools"]) == 11
 
     def test_researcher_tools_are_callable(self) -> None:
         """All researcher tools have valid names."""

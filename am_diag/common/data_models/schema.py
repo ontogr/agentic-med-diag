@@ -260,9 +260,25 @@ class GraphSchema(BaseModel):
             heads = ", ".join(rt.head_labels)
             tails = ", ".join(rt.tail_labels)
             line = f"- {rt.type} [{heads} → {tails}]: {rt.glirel_label}"
-            if rt.description:
+            if rt.description and rt.description != rt.glirel_label:
                 line += f" - {rt.description}"
             lines.append(line)
+        return "\n".join(lines)
+
+    def relation_guide(self) -> str:
+        """Return each extractable relation type with its allowed endpoint pairs."""
+        allowed_pairs: dict[str, set[tuple[str, str]]] = {}
+        for head, relation_type, tail in self.allowed_pairs(extractable_only=True):
+            allowed_pairs.setdefault(relation_type, set()).add((head, tail))
+
+        lines = []
+        for group in self.relation_groups():
+            pairs = sorted(allowed_pairs.get(group.type, set()))
+            if not pairs:
+                continue
+            pair_text = ", ".join(f"{head} -> {tail}" for head, tail in pairs)
+            description = f": {group.description}" if group.description else ""
+            lines.append(f"- {group.type} [{pair_text}]{description}")
         return "\n".join(lines)
 
     def as_text(self) -> str:

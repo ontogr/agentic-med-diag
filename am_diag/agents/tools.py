@@ -13,8 +13,10 @@ from typing import Any, Callable, Protocol
 
 from langchain_core.tools import tool
 
-from am_diag.common.data_models.search import SearchResult
+from am_diag.common.data_models.search import Fact, SearchResult
 from am_diag.retrieval import recipes
+from am_diag.retrieval.assemble import assemble_context
+from am_diag.retrieval.question_type import question_hint
 
 
 logger = logging.getLogger(__name__)
@@ -84,6 +86,8 @@ def _serialize_results(results: list[SearchResult]) -> list[dict[str, Any]]:
             item_dict = item
         else:
             item_dict = {"value": str(item)}
+        if isinstance(item, Fact):
+            item_dict["text"] = item.text()
         out.append(
             {
                 "item": item_dict,
@@ -150,6 +154,49 @@ def make_retrieval_tools(search_engine: SearchProvider) -> list:
 
     @tool
     @tool_retry_decorator()
+    async def entity_lookup(query: str) -> list[dict]:
+        """Find entities by exact name, alias or abbreviation, then by substring.
+
+        Use when the question names specific diseases, drugs or genes.
+        """
+        results = await search_engine.search(query, recipe=recipes.ENTITY_LOOKUP)
+        return _serialize_results(results)
+
+    @tool
+    @tool_retry_decorator()
+    async def relation_expand(query: str) -> list[dict]:
+        """Return the facts one and two hops around the entities in the question.
+
+        Use when the question asks how things are related or connected.
+        """
+        results = await search_engine.search(query, recipe=recipes.RELATION_EXPAND)
+        return _serialize_results(results)
+
+    @tool
+    @tool_retry_decorator()
+    async def enumerate_entities(query: str) -> list[dict]:
+        """Find entities, and entities similar to them, for list-style questions.
+
+        Use when the question asks to list, name or enumerate things.
+        """
+        results = await search_engine.search(query, recipe=recipes.ENUMERATE)
+        return _serialize_results(results)
+
+    @tool
+    @tool_retry_decorator()
+    async def multi_path(query: str) -> dict:
+        """Broad search over entities, facts, passages and community reports.
+
+        Use when the question needs facts about several things at once. Returns
+        a sectioned `context` string with an answer-format hint, and the raw
+        `results`.
+        """
+        results = await search_engine.search(query, recipe=recipes.MULTI_PATH)
+        context = assemble_context(results, hint=question_hint(query))
+        return {"context": context, "results": _serialize_results(results)}
+
+    @tool
+    @tool_retry_decorator()
     async def global_map_reduce(query: str, level: int = 0) -> dict:
         """Broad question answering over all community reports via map-reduce.
 
@@ -167,5 +214,9 @@ def make_retrieval_tools(search_engine: SearchProvider) -> list:
         community_search,
         hybrid_search,
         cypher_search,
+        entity_lookup,
+        relation_expand,
+        enumerate_entities,
+        multi_path,
         global_map_reduce,
     ]

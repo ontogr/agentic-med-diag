@@ -97,21 +97,36 @@ class BamlAsyncClient:
                 "entityA": entityA,"typeA": typeA,"entityB": entityB,"typeB": typeB,
             })
             return typing.cast(types.SamenessVerdict, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def ExtractKnowledgeGraph(self, text: str,source_type: str,
+    async def ExtractKnowledgeGraph(self, text: str,source_type: str,relation_guide: str,
         baml_options: BamlCallOptions = {},
     ) -> types.ExtractedKnowledgeGraph:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
             # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.ExtractKnowledgeGraph(text=text,source_type=source_type,
+            __stream__ = self.stream.ExtractKnowledgeGraph(text=text,source_type=source_type,relation_guide=relation_guide,
                 baml_options=baml_options)
             return await __stream__.get_final_response()
         else:
             # Original non-streaming code
             __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="ExtractKnowledgeGraph", args={
-                "text": text,"source_type": source_type,
+                "text": text,"source_type": source_type,"relation_guide": relation_guide,
             })
             return typing.cast(types.ExtractedKnowledgeGraph, __result__.cast_to(types, types, stream_types, False, __runtime__))
+    async def ExtractQueryKeywords(self, question: str,schema_text: str,
+        baml_options: BamlCallOptions = {},
+    ) -> types.QueryKeywords:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            # Use streaming internally when on_tick is provided
+            __stream__ = self.stream.ExtractQueryKeywords(question=question,schema_text=schema_text,
+                baml_options=baml_options)
+            return await __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="ExtractQueryKeywords", args={
+                "question": question,"schema_text": schema_text,
+            })
+            return typing.cast(types.QueryKeywords, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def ExtractResume(self, resume: str,
         baml_options: BamlCallOptions = {},
     ) -> types.Resume:
@@ -142,19 +157,19 @@ class BamlAsyncClient:
                 "context_data": context_data,"schema_context": schema_context,"max_report_length": max_report_length,
             })
             return typing.cast(types.CommunityReportOutput, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def GenerateCypherQuery(self, question: str,schema_description: str,examples: str,
+    async def GenerateCypherQuery(self, question: str,schema_description: str,examples: str,feedback: str,
         baml_options: BamlCallOptions = {},
     ) -> types.CypherQuery:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
             # Use streaming internally when on_tick is provided
-            __stream__ = self.stream.GenerateCypherQuery(question=question,schema_description=schema_description,examples=examples,
+            __stream__ = self.stream.GenerateCypherQuery(question=question,schema_description=schema_description,examples=examples,feedback=feedback,
                 baml_options=baml_options)
             return await __stream__.get_final_response()
         else:
             # Original non-streaming code
             __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="GenerateCypherQuery", args={
-                "question": question,"schema_description": schema_description,"examples": examples,
+                "question": question,"schema_description": schema_description,"examples": examples,"feedback": feedback,
             })
             return typing.cast(types.CypherQuery, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def IdentifyClusterDuplicates(self, item: str,itemKind: str,candidateSet: typing.List[str],
@@ -283,16 +298,28 @@ class BamlStreamClient:
           lambda x: typing.cast(types.SamenessVerdict, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def ExtractKnowledgeGraph(self, text: str,source_type: str,
+    def ExtractKnowledgeGraph(self, text: str,source_type: str,relation_guide: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlStream[stream_types.ExtractedKnowledgeGraph, types.ExtractedKnowledgeGraph]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="ExtractKnowledgeGraph", args={
-            "text": text,"source_type": source_type,
+            "text": text,"source_type": source_type,"relation_guide": relation_guide,
         })
         return baml_py.BamlStream[stream_types.ExtractedKnowledgeGraph, types.ExtractedKnowledgeGraph](
           __result__,
           lambda x: typing.cast(stream_types.ExtractedKnowledgeGraph, x.cast_to(types, types, stream_types, True, __runtime__)),
           lambda x: typing.cast(types.ExtractedKnowledgeGraph, x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
+    def ExtractQueryKeywords(self, question: str,schema_text: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlStream[stream_types.QueryKeywords, types.QueryKeywords]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="ExtractQueryKeywords", args={
+            "question": question,"schema_text": schema_text,
+        })
+        return baml_py.BamlStream[stream_types.QueryKeywords, types.QueryKeywords](
+          __result__,
+          lambda x: typing.cast(stream_types.QueryKeywords, x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(types.QueryKeywords, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
     def ExtractResume(self, resume: str,
@@ -319,11 +346,11 @@ class BamlStreamClient:
           lambda x: typing.cast(types.CommunityReportOutput, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def GenerateCypherQuery(self, question: str,schema_description: str,examples: str,
+    def GenerateCypherQuery(self, question: str,schema_description: str,examples: str,feedback: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlStream[stream_types.CypherQuery, types.CypherQuery]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="GenerateCypherQuery", args={
-            "question": question,"schema_description": schema_description,"examples": examples,
+            "question": question,"schema_description": schema_description,"examples": examples,"feedback": feedback,
         })
         return baml_py.BamlStream[stream_types.CypherQuery, types.CypherQuery](
           __result__,
@@ -430,11 +457,18 @@ class BamlHttpRequestClient:
             "entityA": entityA,"typeA": typeA,"entityB": entityB,"typeB": typeB,
         }, mode="request")
         return __result__
-    async def ExtractKnowledgeGraph(self, text: str,source_type: str,
+    async def ExtractKnowledgeGraph(self, text: str,source_type: str,relation_guide: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ExtractKnowledgeGraph", args={
-            "text": text,"source_type": source_type,
+            "text": text,"source_type": source_type,"relation_guide": relation_guide,
+        }, mode="request")
+        return __result__
+    async def ExtractQueryKeywords(self, question: str,schema_text: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ExtractQueryKeywords", args={
+            "question": question,"schema_text": schema_text,
         }, mode="request")
         return __result__
     async def ExtractResume(self, resume: str,
@@ -451,11 +485,11 @@ class BamlHttpRequestClient:
             "context_data": context_data,"schema_context": schema_context,"max_report_length": max_report_length,
         }, mode="request")
         return __result__
-    async def GenerateCypherQuery(self, question: str,schema_description: str,examples: str,
+    async def GenerateCypherQuery(self, question: str,schema_description: str,examples: str,feedback: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateCypherQuery", args={
-            "question": question,"schema_description": schema_description,"examples": examples,
+            "question": question,"schema_description": schema_description,"examples": examples,"feedback": feedback,
         }, mode="request")
         return __result__
     async def IdentifyClusterDuplicates(self, item: str,itemKind: str,candidateSet: typing.List[str],
@@ -522,11 +556,18 @@ class BamlHttpStreamRequestClient:
             "entityA": entityA,"typeA": typeA,"entityB": entityB,"typeB": typeB,
         }, mode="stream")
         return __result__
-    async def ExtractKnowledgeGraph(self, text: str,source_type: str,
+    async def ExtractKnowledgeGraph(self, text: str,source_type: str,relation_guide: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ExtractKnowledgeGraph", args={
-            "text": text,"source_type": source_type,
+            "text": text,"source_type": source_type,"relation_guide": relation_guide,
+        }, mode="stream")
+        return __result__
+    async def ExtractQueryKeywords(self, question: str,schema_text: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ExtractQueryKeywords", args={
+            "question": question,"schema_text": schema_text,
         }, mode="stream")
         return __result__
     async def ExtractResume(self, resume: str,
@@ -543,11 +584,11 @@ class BamlHttpStreamRequestClient:
             "context_data": context_data,"schema_context": schema_context,"max_report_length": max_report_length,
         }, mode="stream")
         return __result__
-    async def GenerateCypherQuery(self, question: str,schema_description: str,examples: str,
+    async def GenerateCypherQuery(self, question: str,schema_description: str,examples: str,feedback: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateCypherQuery", args={
-            "question": question,"schema_description": schema_description,"examples": examples,
+            "question": question,"schema_description": schema_description,"examples": examples,"feedback": feedback,
         }, mode="stream")
         return __result__
     async def IdentifyClusterDuplicates(self, item: str,itemKind: str,candidateSet: typing.List[str],

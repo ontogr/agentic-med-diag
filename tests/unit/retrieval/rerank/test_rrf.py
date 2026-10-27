@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
+
 from am_diag.common.data_models.entity import Entity
-from am_diag.common.data_models.search import SearchResult
+from am_diag.common.data_models.search import Fact, SearchResult
 from am_diag.retrieval.rerank.rrf import rrf
 
 
@@ -61,3 +63,72 @@ class TestRRF:
         fused = rrf([[r1], [r2]], k=10)
         expected = 2.0 / 11.0
         assert abs(fused[0].score - expected) < 1e-6
+
+
+class TestRRFIdentity:
+    """RRF merges items by id, not by Python object."""
+
+    def test_same_entity_as_two_objects_merges(self) -> None:
+        """Two Entity objects with one id count as one item."""
+        entity_id = uuid4()
+        first = SearchResult(
+            item=Entity(id=entity_id, name="x", label="Disease"),
+            score=0.9,
+            source="entity",
+        )
+        second = SearchResult(
+            item=Entity(id=entity_id, name="x", label="Disease"),
+            score=0.8,
+            source="bfs",
+        )
+
+        fused = rrf([[first], [second]], k=60)
+
+        assert len(fused) == 1
+        assert fused[0].score == pytest.approx(2 / 61)
+
+    def test_same_fact_from_two_lists_merges(self) -> None:
+        """Facts with one head, type and tail are one item."""
+        fact = Fact(head_id="a", head_name="a", type="T", tail_id="b", tail_name="b")
+
+        fused = rrf(
+            [
+                [SearchResult(item=fact, score=0.9, source="relation")],
+                [
+                    SearchResult(
+                        item=fact.model_copy(), score=0.5, source="relations_1hop"
+                    )
+                ],
+            ]
+        )
+
+        assert len(fused) == 1
+
+    def test_different_entities_stay_separate(self) -> None:
+        """Entities with different ids are not merged."""
+        fused = rrf(
+            [
+                [SearchResult(item=_METFORMIN, score=0.9, source="entity")],
+                [SearchResult(item=_DIABETES, score=0.9, source="entity")],
+            ]
+        )
+
+        assert len(fused) == 2
+
+    def test_two_hop_facts_with_different_middles_stay_separate(self) -> None:
+        """Paths that differ only in the entity between the ends are two items."""
+
+        def path(via_id: str) -> SearchResult:
+            fact = Fact(
+                head_id="a",
+                head_name="a",
+                type="T1>T2",
+                tail_id="b",
+                tail_name="b",
+                hops=2,
+                via_id=via_id,
+                via_name=via_id,
+            )
+            return SearchResult(item=fact, score=0.5, source="relations_2hop")
+
+        assert len(rrf([[path("m1"), path("m2")]])) == 2

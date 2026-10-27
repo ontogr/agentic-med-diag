@@ -1,7 +1,8 @@
 """Text-to-Cypher retriever: BAML ``GenerateCypherQuery`` + EXPLAIN check + retry.
 
 Accepts the new ``:RELATES_TO {type}`` generic-edge schema.
-Schema context is provided by ``GraphSchema.as_text()``.
+Schema context is provided by ``GraphSchema.as_text()``. Generated queries pass
+through :func:`~am_diag.retrieval.cypher_guard.guard_cypher` before ``EXPLAIN``.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from am_diag.common.data_models.search import CypherRow, SearchResult
 from am_diag.db.graph.base import GraphStore
 from am_diag.db.graph.errors import GraphWriteRejected
 from am_diag.retrieval.config import RetrievalConfig
+from am_diag.retrieval.cypher_guard import guard_cypher
+from am_diag.retrieval.filters import SearchFilters
 
 
 logger = logging.getLogger(__name__)
@@ -25,8 +28,10 @@ class Text2CypherRetriever:
 
     Flow:
     1. Serialise ``GraphSchema`` as ``:RELATES_TO {type}`` description.
-    2. Call BAML ``GenerateCypherQuery(question, schema, examples)``.
-    3. ``EXPLAIN`` validation — if it fails, retry up to ``max_attempts``.
+    2. Call BAML ``GenerateCypherQuery``, passing the reason for the last
+       rejection as feedback.
+    3. Check the query against the schema, add or lower its ``LIMIT``, then
+       ``EXPLAIN`` it. A rejected query is retried up to ``max_attempts``.
     4. Execute the validated query in a read transaction and return one
        ``SearchResult`` per row. A query that tries to write returns no results.
 
@@ -51,7 +56,7 @@ class Text2CypherRetriever:
     async def retrieve(
         self,
         query: str,
-        filters: dict | None = None,  # noqa: ARG002
+        filters: SearchFilters | None = None,  # noqa: ARG002
     ) -> list[SearchResult]:
         """Generate and execute a Cypher query for ``query``.
 
@@ -70,24 +75,37 @@ class Text2CypherRetriever:
         schema_desc = self._get_schema_description()
 
         last_error: str | None = None
+        feedback = ""
         cypher_result = None
 
         for attempt in range(self._config.text2cypher_max_attempts):
             try:
-                result = await b.GenerateCypherQuery(query, schema_desc, "")
+                result = await b.GenerateCypherQuery(query, schema_desc, "", feedback)
             except Exception as exc:
                 last_error = f"BAML generation failed (attempt {attempt + 1}): {exc}"
                 logger.warning(last_error)
                 continue
 
-            cypher = result.cypher.strip()
+            guarded = guard_cypher(
+                result.cypher.strip(),
+                self._schema,
+                dialect=self._graph.dialect,
+                default_limit=self._config.text2cypher_limit,
+                max_limit=self._config.text2cypher_max_limit,
+            )
+            if guarded.errors:
+                feedback = " ".join(guarded.errors)
+                last_error = f"guard rejected (attempt {attempt + 1}): {feedback}"
+                logger.warning(last_error)
+                continue
 
             # EXPLAIN checks syntax and the query plan before anything runs.
             try:
-                await self._graph.explain(cypher)
-                cypher_result = cypher
+                await self._graph.explain(guarded.cypher)
+                cypher_result = guarded.cypher
                 break
             except Exception as exc:
+                feedback = str(exc)
                 last_error = f"EXPLAIN rejected (attempt {attempt + 1}): {exc}"
                 logger.warning(last_error)
 

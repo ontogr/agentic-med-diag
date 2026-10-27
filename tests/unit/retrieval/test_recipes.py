@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from am_diag.retrieval import recipes
 from am_diag.retrieval.config import SearchConfig
 
@@ -62,9 +65,39 @@ class TestRecipeConstants:
         """Verify a new recipe can be added as a SearchConfig constant."""
         new_recipe = SearchConfig(
             methods=["entity", "chunk"],
-            reranker="mmr",
+            reranker="cosine",
             limit=15,
         )
         assert new_recipe.limit == 15
         assert "entity" in new_recipe.methods
-        assert new_recipe.reranker == "mmr"
+        assert new_recipe.reranker == "cosine"
+
+
+class TestRecipeValidation:
+    """Tests for recipe names and reranker choices."""
+
+    def test_unimplemented_reranker_is_rejected(self) -> None:
+        """A reranker the engine cannot run fails when the recipe is built."""
+        with pytest.raises(ValidationError):
+            SearchConfig(methods=["entity"], reranker="mmr")  # ty: ignore[invalid-argument-type]
+
+    def test_recipe_names_are_unique(self) -> None:
+        """Verify no recipe name appears twice in ALL_RECIPES."""
+        names = [name for name, _ in recipes.ALL_RECIPES]
+        assert len(names) == len(set(names))
+
+    def test_every_exported_recipe_is_listed(self) -> None:
+        """Verify each recipe constant in __all__ is reachable by name."""
+        listed = [recipe for _, recipe in recipes.ALL_RECIPES]
+        constants = [
+            getattr(recipes, name) for name in recipes.__all__ if name != "ALL_RECIPES"
+        ]
+        assert all(any(c is r for r in listed) for c in constants)
+
+    def test_multi_path_cypher_adds_only_text2cypher(self) -> None:
+        """Verify MULTI_PATH_CYPHER is MULTI_PATH plus text2cypher."""
+        assert recipes.MULTI_PATH_CYPHER.methods == [
+            *recipes.MULTI_PATH.methods,
+            "text2cypher",
+        ]
+        assert recipes.MULTI_PATH_CYPHER.expanders == recipes.MULTI_PATH.expanders

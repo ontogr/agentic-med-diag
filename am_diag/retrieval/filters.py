@@ -10,6 +10,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from am_diag.common.cypher._identifiers import validate_label
+from am_diag.common.cypher.loader import safe_identifier
+
 
 class SearchFilters(BaseModel):
     """Typed metadata filter for retrieval.
@@ -62,13 +65,18 @@ class SearchFilters(BaseModel):
         Returns:
             A ``(where_string, params)`` tuple. ``where_string`` is empty
             when no filters are set.
+
+        Raises:
+            ValueError: If a label or property key is not a safe Cypher
+                identifier. Both are written into the query text, so they
+                are checked before they are used.
         """
         clauses: list[str] = []
         params: dict[str, Any] = {}
 
         if self.labels:
             clauses.append(
-                " OR ".join(f"{var}:{lab}" for lab in self.labels),
+                " OR ".join(f"{var}:{validate_label(lab)}" for lab in self.labels),
             )
         if self.relation_types:
             clauses.append(f"type({var}) IN $relation_types")
@@ -81,6 +89,7 @@ class SearchFilters(BaseModel):
             params["community_level"] = self.community_level
         if self.properties:
             for k, v in self.properties.items():
+                safe_identifier(k)
                 clauses.append(f"{var}.{k} = ${k}")
                 params[k] = v
 
