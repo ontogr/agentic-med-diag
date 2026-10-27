@@ -108,18 +108,18 @@ class BamlSyncClient:
                 "entityA": entityA,"typeA": typeA,"entityB": entityB,"typeB": typeB,
             })
             return typing.cast(types.SamenessVerdict, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def ExtractKnowledgeGraph(self, text: str,source_type: str,
+    def ExtractKnowledgeGraph(self, text: str,source_type: str,relation_guide: str,
         baml_options: BamlCallOptions = {},
     ) -> types.ExtractedKnowledgeGraph:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
-            __stream__ = self.stream.ExtractKnowledgeGraph(text=text,source_type=source_type,
+            __stream__ = self.stream.ExtractKnowledgeGraph(text=text,source_type=source_type,relation_guide=relation_guide,
                 baml_options=baml_options)
             return __stream__.get_final_response()
         else:
             # Original non-streaming code
             __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="ExtractKnowledgeGraph", args={
-                "text": text,"source_type": source_type,
+                "text": text,"source_type": source_type,"relation_guide": relation_guide,
             })
             return typing.cast(types.ExtractedKnowledgeGraph, __result__.cast_to(types, types, stream_types, False, __runtime__))
     def ExtractQueryKeywords(self, question: str,schema_text: str,
@@ -297,11 +297,11 @@ class BamlStreamClient:
           lambda x: typing.cast(types.SamenessVerdict, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def ExtractKnowledgeGraph(self, text: str,source_type: str,
+    def ExtractKnowledgeGraph(self, text: str,source_type: str,relation_guide: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.ExtractedKnowledgeGraph, types.ExtractedKnowledgeGraph]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="ExtractKnowledgeGraph", args={
-            "text": text,"source_type": source_type,
+            "text": text,"source_type": source_type,"relation_guide": relation_guide,
         })
         return baml_py.BamlSyncStream[stream_types.ExtractedKnowledgeGraph, types.ExtractedKnowledgeGraph](
           __result__,
@@ -456,11 +456,11 @@ class BamlHttpRequestClient:
             "entityA": entityA,"typeA": typeA,"entityB": entityB,"typeB": typeB,
         }, mode="request")
         return __result__
-    def ExtractKnowledgeGraph(self, text: str,source_type: str,
+    def ExtractKnowledgeGraph(self, text: str,source_type: str,relation_guide: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="ExtractKnowledgeGraph", args={
-            "text": text,"source_type": source_type,
+            "text": text,"source_type": source_type,"relation_guide": relation_guide,
         }, mode="request")
         return __result__
     def ExtractQueryKeywords(self, question: str,schema_text: str,
@@ -555,11 +555,11 @@ class BamlHttpStreamRequestClient:
             "entityA": entityA,"typeA": typeA,"entityB": entityB,"typeB": typeB,
         }, mode="stream")
         return __result__
-    def ExtractKnowledgeGraph(self, text: str,source_type: str,
+    def ExtractKnowledgeGraph(self, text: str,source_type: str,relation_guide: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="ExtractKnowledgeGraph", args={
-            "text": text,"source_type": source_type,
+            "text": text,"source_type": source_type,"relation_guide": relation_guide,
         }, mode="stream")
         return __result__
     def ExtractQueryKeywords(self, question: str,schema_text: str,

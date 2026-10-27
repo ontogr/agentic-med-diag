@@ -2,12 +2,14 @@
 
 Constructs a BAML TypeBuilder with dynamic EntityType and RelationType
 enums populated from a GraphSchema instance. This enables BAML to constrain
-extraction to schema-valid types at call time rather than via prompt text.
+extraction to schema-valid types at call time. Relation endpoint pairs are also
+passed to the extraction prompt.
 
 Usage::
 
     tb = build_schema_typebuilder(schema)
-    result = await b.ExtractKnowledgeGraph(text, source, baml_options={"tb": tb})
+    guide = schema.relation_guide()
+    result = await b.ExtractKnowledgeGraph(text, source, guide, baml_options={"tb": tb})
 """
 
 from __future__ import annotations
@@ -24,9 +26,8 @@ def build_schema_typebuilder(schema: GraphSchema) -> TypeBuilder:
 
     Only types that text extractors may produce are offered.
 
-    Each EntityType value is annotated with the entity type description so the
-    LLM sees human-readable labels in the output schema, not just identifiers.
-    RelationType values are annotated with the GLiREL label for the same reason.
+    Entity values include their descriptions. Relation values include their
+    descriptions when available.
 
     Args:
         schema: The graph schema defining valid entity and relation types.
@@ -37,6 +38,17 @@ def build_schema_typebuilder(schema: GraphSchema) -> TypeBuilder:
     tb = TypeBuilder()
     for et in schema.extractable_entity_types():
         tb.EntityType.add_value(et.label).description(et.description)
-    for rt in schema.extractable_relation_types():
-        tb.RelationType.add_value(rt.type).description(rt.glirel_label)
+    extractable_relations = {
+        relation.type: relation for relation in schema.extractable_relation_types()
+    }
+
+    for group in schema.relation_groups():
+        relation = extractable_relations.get(group.type)
+        if relation is None:
+            continue
+        description = group.description or relation.glirel_label
+        if description:
+            tb.RelationType.add_value(group.type).description(description)
+        else:
+            tb.RelationType.add_value(group.type)
     return tb

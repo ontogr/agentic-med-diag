@@ -80,10 +80,9 @@ class GLiNEREntityExtractor(Extractor):
         entities: list[Entity] = []
         for chunk, spans in zip(chunks, all_spans, strict=False):
             for s in spans:
-                entity_label = schema.gliner_to_label.get(
-                    s["label"],
-                    s["label"],
-                )
+                entity_label = schema.gliner_to_label.get(s["label"])
+                if entity_label is None:
+                    continue
                 ent = Entity(
                     name=s["text"],
                     label=entity_label,

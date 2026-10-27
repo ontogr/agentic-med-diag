@@ -74,7 +74,11 @@ class ComposedExtractor(Extractor):
 
         entities, relations = self._combiner.combine(results)
         entities, relations = await self._normalizer.normalize(entities, relations, [])
-        relations = self._link_endpoints(entities, relations)
+        relations = self._link_endpoints(
+            entities,
+            relations,
+            frozenset(self._schema.allowed_pairs(extractable_only=True)),
+        )
         entities, relations, _ = self._pruner.prune(entities, relations)
         return entities, relations
 
@@ -92,32 +96,45 @@ class ComposedExtractor(Extractor):
 
     @staticmethod
     def _link_endpoints(
-        entities: list[Entity], relations: list[Relation]
+        entities: list[Entity],
+        relations: list[Relation],
+        allowed: frozenset[tuple[str, str, str]] = frozenset(),
     ) -> list[Relation]:
-        """Set ``head_id``/``tail_id`` by name and rebuild for a stable id.
+        """Link relation names to entities and rebuild for a stable id.
 
-        Relations whose endpoints are missing or match several entities are
-        dropped. Each kept relation is reconstructed (excluding ``id``) so that, once
-        ``Relation`` marks ``(head_id, tail_id, type)`` as Dedup keys, the id
-        becomes the deterministic ``uuid5`` derived from the now-set endpoints.
+        When a name matches several entities, the allowed relation endpoint labels
+        resolve it only if exactly one entity pair fits. Each kept relation is
+        reconstructed (excluding ``id``) so that its id is derived from the linked
+        endpoints and relation type.
         """
-        candidates: dict[str, set[UUID]] = {}
+        candidates: dict[str, list[Entity]] = {}
         for e in entities:
-            candidates.setdefault(normalize_text(e.name), set()).add(e.id)
-        name_to_id = {
-            name: next(iter(ids)) for name, ids in candidates.items() if len(ids) == 1
-        }
+            candidates.setdefault(normalize_text(e.name), []).append(e)
+
         linked: list[Relation] = []
         dropped = 0
         for rel in relations:
-            head_id = name_to_id.get(normalize_text(rel.head_name))
-            tail_id = name_to_id.get(normalize_text(rel.tail_name))
-            if head_id is None or tail_id is None:
+            heads = candidates.get(normalize_text(rel.head_name), [])
+            tails = candidates.get(normalize_text(rel.tail_name), [])
+            if not heads or not tails:
                 dropped += 1
                 continue
+            if len(heads) == 1 and len(tails) == 1:
+                head, tail = heads[0], tails[0]
+            else:
+                matches = [
+                    (head, tail)
+                    for head in heads
+                    for tail in tails
+                    if (head.label, rel.type, tail.label) in allowed
+                ]
+                if len(matches) != 1:
+                    dropped += 1
+                    continue
+                head, tail = matches[0]
             data = rel.model_dump(exclude={"id"})
-            data["head_id"] = head_id
-            data["tail_id"] = tail_id
+            data["head_id"] = head.id
+            data["tail_id"] = tail.id
             linked.append(Relation(**data))
         if dropped:
             logger.debug(

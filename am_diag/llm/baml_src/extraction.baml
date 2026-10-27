@@ -37,10 +37,14 @@ class ExtractedKnowledgeGraph {
   relations ExtractedRelation[]
 }
 
-// Extraction function — entity/relation type constraints are injected via TypeBuilder,
-// not as prompt strings. Pass {"tb": build_schema_typebuilder(schema)} at call time.
+// Type enums are injected via TypeBuilder; allowed endpoint pairs go in the prompt.
+// Pass {"tb": build_schema_typebuilder(schema)} at call time.
 
-function ExtractKnowledgeGraph(text: string, source_type: string) -> ExtractedKnowledgeGraph {
+function ExtractKnowledgeGraph(
+  text: string,
+  source_type: string,
+  relation_guide: string,
+) -> ExtractedKnowledgeGraph {
   client OpenAIGeneric
   prompt #"
     {{ _.role("system") }}
@@ -55,6 +59,11 @@ function ExtractKnowledgeGraph(text: string, source_type: string) -> ExtractedKn
     5. Scores: 1.0 = explicitly named, 0.7 = strongly implied, 0.5 = inferred
     6. Use properties map for type-specific fields — only include if stated in text
     7. Source context: {{ source_type }}
+    8. A relation is valid only when its head and tail types match a listed pair.
+       Use the listed direction. Do not output a relation when no pair fits.
+
+    Allowed relation types and endpoint pairs:
+    {{ relation_guide }}
 
     {{ ctx.output_format }}
 

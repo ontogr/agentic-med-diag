@@ -7,6 +7,7 @@ so the enum tests swap in a recording builder at the module's TypeBuilder import
 import pytest
 
 from am_diag.common.data_models.schema import EntityType, GraphSchema, RelationType
+from am_diag.common.schema.optimuskg import OPTIMUSKG_SCHEMA
 from am_diag.llm import schema_typebuilder
 from am_diag.llm.baml_client.type_builder import TypeBuilder
 from am_diag.llm.schema_typebuilder import build_schema_typebuilder
@@ -15,8 +16,13 @@ from am_diag.llm.schema_typebuilder import build_schema_typebuilder
 class _RecordingEnumValue:
     """Stand-in for an enum value builder that accepts a description."""
 
+    def __init__(self, descriptions: dict[str, str], name: str) -> None:
+        self._descriptions = descriptions
+        self._name = name
+
     def description(self, text: str) -> "_RecordingEnumValue":
         """Accept a description and return the value builder."""
+        self._descriptions[self._name] = text
         return self
 
 
@@ -25,11 +31,12 @@ class _RecordingEnum:
 
     def __init__(self) -> None:
         self.values: list[str] = []
+        self.descriptions: dict[str, str] = {}
 
     def add_value(self, name: str) -> _RecordingEnumValue:
         """Record the value name and return a value builder."""
         self.values.append(name)
-        return _RecordingEnumValue()
+        return _RecordingEnumValue(self.descriptions, name)
 
 
 class _RecordingTypeBuilder:
@@ -129,3 +136,21 @@ class TestBuildSchemaTypebuilder:
         schema = GraphSchema(entity_types=[], relation_types=[])
         tb = build_schema_typebuilder(schema)
         assert tb is not None
+
+    def test_groups_relation_enum_values_and_adds_meaning_descriptions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Relation enum values are unique and describe their meanings."""
+        recorder = _RecordingTypeBuilder()
+        monkeypatch.setattr(schema_typebuilder, "TypeBuilder", lambda: recorder)
+
+        build_schema_typebuilder(OPTIMUSKG_SCHEMA)
+
+        assert len(recorder.RelationType.values) == len(
+            set(recorder.RelationType.values)
+        )
+        assert "INDICATION" in recorder.RelationType.values
+        assert "PARENT" not in recorder.RelationType.values
+        assert recorder.RelationType.descriptions["INDICATION"] == (
+            "drug is indicated for (approved to treat) a disease or phenotype"
+        )
