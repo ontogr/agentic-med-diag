@@ -143,7 +143,7 @@ Corpus ingestion streams documents, chunks them, and runs a LangGraph pipeline o
 
 Resolution runs before community detection so the graph is clustered over canonical entities.
 
-Graph loaders (see [Graph loaders](#graph-loaders)) take a shorter path. They read a pre-built biomedical graph and produce typed `Entity` and `Relation` records directly, so they skip chunking and extraction and join the pipeline at the finalization stages (community detection and summarization).
+Graph loaders (see [Graph loaders](#graph-loaders)) take a shorter path. They read a pre-built biomedical graph and produce typed `Entity` and `Relation` records directly, so they skip chunking and extraction and join the pipeline at finalization. Finalization runs community detection only. It stores the communities and links entities to them, but it does not generate `CommunityReport` summaries, so a graph built only from graph loaders has no community reports.
 
 ## Embedding Pipeline
 
@@ -210,7 +210,7 @@ The `am_diag.evaluation` package scores QA outputs. Each evaluator matches one a
 - `MedCaseReasoningEvaluator` for MedCaseReasoning, which judges diagnosis correctness and, when the sample has reference reasoning, how much of that reasoning the answer covers.
 - `RubricEvaluator` for rubric-based judging.
 
-The evaluators follow the Medmarks metric families. The `am-diag qa` command runs them over the selected datasets.
+The evaluators follow the Medmarks metric families. They are library components that you call yourself. The `am-diag qa` command does not run them. It only generates an answer for each dataset question and writes the answers to a JSON file, so it produces no scores.
 
 ## Datasets
 
@@ -358,7 +358,7 @@ uv run am-diag ingest --graph med \
     --source loader:drugbank:/data/drugbank --reference-dir /data/reference \
     --finalize
 
-# Federated retrieval and durable batch QA
+# Federated retrieval and durable batch answering (answers only, no scoring)
 uv run am-diag search --project clinical "first-line treatment for hypertension"
 uv run am-diag qa --project clinical --datasets careqa,medqa --limit 10
 
@@ -391,9 +391,9 @@ Every command is `uv run am-diag <command>`. Run any command with `--help` for t
 | `projects list` | List projects. |
 | `projects add-graph` / `projects remove-graph` | Add or remove one graph (`--project`, `--graph`) in an existing project. |
 | `ingest --graph <id> --source <spec>` | Ingest one or more sources as a durable, resumable job. Repeat `--source` for each `corpus:<key>` or `loader:<key>:<dir>`. Add `--reference-dir` for loaders that need reference data and `--finalize` to run community detection afterward. |
-| `finalize --graph <id>` | Run community detection and summarization on a graph that is already ingested. |
+| `finalize --graph <id>` | Run community detection on a graph that is already ingested. It stores and links the communities and does not generate community reports. |
 | `search --project <id> "<query>"` | Run a federated search. `--graphs` limits the graphs and `--recipe` selects a retrieval recipe (default `hybrid_rrf`). |
-| `qa --project <id> --datasets <keys>` | Run batch QA over datasets. `--limit` caps samples per dataset and `--output` sets the results file (default `qa_results.json`). |
+| `qa --project <id> --datasets <keys>` | Generate answers in a durable batch job over datasets. The command only generates answers and does not run the evaluators or produce scores. `--limit` caps samples per dataset and `--output` sets the results file (default `qa_results.json`). |
 | `jobs list` / `jobs get --job-id <id>` | List durable jobs or show one. |
 
 Dataset keys for `--datasets` are `careqa`, `careqa_reasoning`, `healthbench`, `medcase_reasoning`, `medmcqa`, `medqa`, `medxpertqa`, `mmlu_med`, `mmlu_pro_health`, `nejm_diagnostic`, `nejm_qa`, `pubhealthbench`, `pubhealthbench_freeform`, `pubmedqa`, `rar_med`, and `supergpqa_med`.
@@ -428,7 +428,7 @@ async with Workspace.from_env() as client:
     hits = await client.project("clinical").search("sepsis", graphs=["med"])
     ctx  = await client.graph("med").context("sepsis", max_characters=2500)
 
-    # Agent (project-scoped, federated) + durable batch evaluation
+    # Agent (project-scoped, federated) + durable batch answering
     answer = await client.project("clinical").answer(
         "First-line treatments for hypertension in type 2 diabetes?"
     )
