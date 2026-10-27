@@ -201,7 +201,7 @@ Results from the recipe's methods are gathered concurrently, then its expanders 
 The agent is a DeepAgents harness that coordinates three subagents with an orchestrator agent:
 
 - **Planner** decomposes the clinical question into focused sub-questions, each mapped to a retrieval recipe. It has no tools and works from the question text.
-- **Researcher** is spawned in parallel, one per sub-question. Each holds the retrieval tools (entity, relation, chunk, community, hybrid, text-to-Cypher search, and a community map-reduce tool) and returns evidence items with citations.
+- **Researcher** is spawned in parallel, one per sub-question. Each holds the retrieval tools (entity, relation, chunk, community, hybrid, and text-to-Cypher search, plus `entity_lookup`, `relation_expand`, `enumerate_entities`, a broad `multi_path` search, and a community map-reduce tool) and returns evidence items with citations.
 - **Verifier** reads the gathered evidence and returns a structured assessment - a coverage score, an evidence-depth score, missing pieces, targeted follow-ups, and unsupported claims. A deterministic numeric gate decides whether the evidence is sufficient.
 
 When the gate fails, the targeted follow-ups seed another planning round, so the loop converges on missing information rather than repeating searches. When it passes (or iterations are exhausted), the orchestrator synthesises a structured answer with answer text, source citations, a confidence score, clinical caveats, and an answerability flag.
@@ -219,6 +219,8 @@ The `am_diag.evaluation` package scores QA outputs. Each evaluator matches one a
 - `DiagnosisAccuracyEvaluator` for BAML-backed judging of whether a predicted diagnosis matches the true diagnosis.
 - `MedCaseReasoningEvaluator` for MedCaseReasoning, which judges diagnosis correctness and, when the sample has reference reasoning, how much of that reasoning the answer covers.
 - `RubricEvaluator` for rubric-based judging.
+
+`run_ablation` in `am_diag.evaluation.retrieval_ablation` scores retrieval instead of answers. Given questions with gold item ids and a set of recipes, it runs each recipe on each question several times and records whether a gold item ranks in the top `k`, the reciprocal rank, and latency. `summarize` aggregates the rows per recipe. A fact counts as gold only when both of its endpoint entities are gold.
 
 The evaluators follow the Medmarks metric families. They are library components that you call yourself. The `am-diag qa` command does not run them. It only generates an answer for each dataset question and writes the answers to a JSON file, so it produces no scores.
 
@@ -371,6 +373,8 @@ uv run am-diag ingest --graph okg \
 ```
 
 The loader needs no `--reference-dir`. Search, the agent, and curation then work on the graph like on any other graph. `--ontology-mode` affects only facts that text extraction produces. It has no effect on the structured data that the loader ingests.
+
+When you run text extraction into an OptimusKG graph, the schema gives GLiNER plain-language entity labels (for example "symptom, clinical sign, or phenotypic abnormality" for `Phenotype`) and gives GLiREL descriptions for nine semantic relation types only. The other relation types are left to the LLM extractor. Entities or relations that the extractors return with a label outside the schema are dropped. When a relation names an entity that matches several extracted entities, the allowed head and tail labels resolve it only if exactly one pair fits. Otherwise the relation is dropped.
 
 ### Use from Python
 
