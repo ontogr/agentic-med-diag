@@ -17,7 +17,7 @@
 This repository implements an Agentic GraphRAG system for Medical Diagnosis. It ingests medical literature, extracts structured clinical knowledge into a knowledge graph (Neo4j or FalkorDB) with hierarchical communities, and answers diagnostic questions through multi-strategy retrieval and an agentic plan–research–verify reasoning loop.
 
 <p align="center">
-  <img src="img/agentic_graphrag_for_medical_diagnosis.png" alt="Agentic GraphRAG for Medical Diagnosis" width="900">
+  <img src="img/agentic_graphrag_for_medical_diagnosis.png" alt="Architecture diagram. Text corpora and pre-built graphs feed an ingestion pipeline that writes to a graph store and a vector store. A search engine reads both stores, and a planner, researcher and verifier agent uses it to answer clinical questions." width="900">
 </p>
 
 - **Schema-driven knowledge graph** built from a runtime-injectable schema of medical entity and relation types that drives every extractor, resolver, summarizer, and prompt.
