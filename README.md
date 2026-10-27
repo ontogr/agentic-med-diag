@@ -14,7 +14,7 @@
 
 </div>
 
-This repository implements an Agentic GraphRAG system for Medical Diagnosis. It ingests medical literature, extracts structured clinical knowledge into a Neo4j knowledge graph with hierarchical communities, and answers diagnostic questions through multi-strategy retrieval and an agentic plan–research–verify reasoning loop.
+This repository implements an Agentic GraphRAG system for Medical Diagnosis. It ingests medical literature, extracts structured clinical knowledge into a knowledge graph (Neo4j or FalkorDB) with hierarchical communities, and answers diagnostic questions through multi-strategy retrieval and an agentic plan–research–verify reasoning loop.
 
 <p align="center">
   <img src="img/agentic_graphrag_for_medical_diagnosis.png" alt="Agentic GraphRAG for Medical Diagnosis" width="900">
@@ -33,7 +33,7 @@ The system is built using:
 
 - [**GLiNER**](https://github.com/urchade/GLiNER) and [**GLiREL**](https://github.com/jackboyla/GLiREL) for local zero-shot entity and relation extraction.  
 - [**Graspologic**](https://github.com/microsoft/graspologic) / [**Neo4j GDS**](https://github.com/neo4j/graph-data-science) for Hierarchical Leiden community detection.  
-- [**Neo4j**](https://neo4j.com/) for the persistent knowledge graph with typed nodes, edges, and hierarchical communities.  
+- [**Neo4j**](https://neo4j.com/) or [**FalkorDB**](https://www.falkordb.com/) for the persistent knowledge graph with typed nodes, edges, and hierarchical communities.  
 - [**Qdrant**](https://qdrant.io/) / [**Weaviate**](https://weaviate.io/) for vector search and hybrid (dense + BM25) retrieval.  
 - [**BAML**](https://www.boundaryml.com/) for type-safe, schema-injected LLM functions.  
 - [**LangGraph**](https://www.langchain.com/langgraph) for orchestrating the extraction, embedding, and search pipelines.  
@@ -46,7 +46,7 @@ The system is built using:
   <img src="img/graph_schema.png" alt="Knowledge Graph Schema" width="900">
 </p>
 
-The system stores everything in a single typed property graph in Neo4j with five node labels (`Document`, `Chunk`, `Entity`, `Community`, `CommunityReport`) and seven edge types:
+The system stores everything in a single typed property graph in Neo4j or FalkorDB with five node labels (`Document`, `Chunk`, `Entity`, `Community`, `CommunityReport`) and seven edge types:
 
 ```
 (:Document) <-[:PART_OF]-  (:Chunk) -[:HAS_ENTITY]-> (:Entity:<Type>)
@@ -124,11 +124,11 @@ The schema fixes the ontology that a graph is tied to. When the graph is created
 
 ## Architecture
 
-The system has two data flows: ingestion (text into a knowledge graph and vector store) and retrieval using an agent.
+The system has two data flows: ingestion (text and pre-built graphs into a knowledge graph and vector store) and retrieval using an agent. The diagram at the top of this page shows both flows.
 
 ## Ingestion Pipeline
 
-Corpus ingestion streams documents, chunks them, and runs a LangGraph pipeline of graph construction components. State accumulates into a `KnowledgeGraph` that is written to Neo4j and the vector store. The stages run in order:
+Corpus ingestion streams documents, chunks them, and runs a LangGraph pipeline of graph construction components. State accumulates into a `KnowledgeGraph` that is written to the graph store and the vector store. The stages run in order:
 
 1. **Extract:** Each chunk is processed by up to three extractors that share the injected schema:
    - **GLiNER** runs batch zero-shot NER, steered by each entity type's natural-language label.
@@ -142,6 +142,8 @@ Corpus ingestion streams documents, chunks them, and runs a LangGraph pipeline o
 7. **Summarize:** Communities are walked bottom-up by level; a degree-ranked, token-budgeted context is built for each and passed to an LLM that produces a titled report with structured findings and a clinical-importance rating.
 
 Resolution runs before community detection so the graph is clustered over canonical entities.
+
+Graph loaders (see [Graph loaders](#graph-loaders)) take a shorter path. They read a pre-built biomedical graph and produce typed `Entity` and `Relation` records directly, so they skip chunking and extraction and join the pipeline at the finalization stages (community detection and summarization).
 
 ## Embedding Pipeline
 
@@ -200,13 +202,15 @@ Every LLM interaction outside the agent loop is a typed BAML function with expli
 
 ## Evaluation Metrics
 
-The repository now includes a lightweight `am_diag.evaluation` package for scoring QA outputs:
+The `am_diag.evaluation` package scores QA outputs. Each evaluator matches one answer format:
 
 - `MCQAccuracyEvaluator` for deterministic multiple-choice grading.
-- `AnswerEquivalenceEvaluator` and `DiagnosisAccuracyEvaluator` for BAML-backed open-ended judging.
+- `AnswerEquivalenceEvaluator` for BAML-backed judging of open-ended answers against a reference answer.
+- `DiagnosisAccuracyEvaluator` for BAML-backed judging of whether a predicted diagnosis matches the true diagnosis.
+- `MedCaseReasoningEvaluator` for MedCaseReasoning, which judges diagnosis correctness and, when the sample has reference reasoning, how much of that reasoning the answer covers.
 - `RubricEvaluator` for rubric-based judging.
 
-These evaluators are structured to match the Medmarks metric families and can be extended with richer dataset-specific judges later.
+The evaluators follow the Medmarks metric families. The `am-diag qa` command runs them over the selected datasets.
 
 ## Datasets
 
@@ -245,15 +249,36 @@ We provide loaders for Medical Question-Answer benchmarks across three evaluatio
 
 ## Corpora
 
-We provide streaming loaders for medical text corpora.
+We provide streaming loaders for medical text corpora. Pass the key to `am-diag ingest` as `--source corpus:<key>`.
 
-| Corpus | Description |
-|--------|--------|
-| USMLE Textbooks | English USMLE preparation textbooks covering core preclinical and clinical medicine. |
-| StatPearls | Peer-reviewed point-of-care clinical reference articles from NCBI Bookshelf. |
-| PubMed Abstracts | Biomedical literature titles and abstracts from PubMed. |
-| PMC Case Reports | Full-text PubMed Central case reports describing patient presentations, workups, diagnoses, and outcomes. |
-| Meditron Clinical Guidelines | Clinical practice guidelines from authoritative health organizations for diagnosis, treatment, and care management. |
+| Corpus | Key | Description |
+|--------|-----|--------|
+| USMLE Textbooks | `textbooks` | English USMLE preparation textbooks covering core preclinical and clinical medicine. |
+| StatPearls | `statpearls` | Peer-reviewed point-of-care clinical reference articles from NCBI Bookshelf. |
+| PubMed Abstracts | `pubmed` | Biomedical literature titles and abstracts from PubMed. |
+| PMC Case Reports | `pubmed_case_reports` | Full-text PubMed Central case reports describing patient presentations, workups, diagnoses, and outcomes. |
+| Meditron Clinical Guidelines | `clinical_guidelines` | Clinical practice guidelines from authoritative health organizations for diagnosis, treatment, and care management. |
+
+## Graph loaders
+
+Graph loaders read pre-built biomedical graphs from local files and ingest them as typed entities and relations, without chunking or text extraction. Pass the key and the directory that holds the source files to `am-diag ingest` as `--source loader:<key>:<dir>`. Loaders that need shared reference data, such as the Open Targets, HGNC, and ontology files used to harmonize identifiers, also need `--reference-dir`.
+
+| Source | Key | Contents |
+|--------|-----|----------|
+| OptimusKG | `optimuskg` | The released OptimusKG gold graph, read from Parquet. Pair it with `--schema optimuskg`. |
+| Uberon | `uberon` | Anatomical structures and their `is_a` hierarchy. |
+| Mondo | `mondo` | Diseases and their `is_a` hierarchy. |
+| Human Phenotype Ontology | `hpo` | Phenotypes and their `is_a` hierarchy. |
+| Gene Ontology | `gene_ontology` | Biological process, cellular component, and molecular function terms with `is_a` edges. |
+| Reactome | `reactome` | Pathways and the pathway hierarchy. |
+| Open Targets | `opentargets` | Target-disease associations and related relations, keyed on Ensembl, ChEMBL, and ontology ids. |
+| Bgee | `bgee` | Gene expression in anatomical structures. |
+| DrugBank | `drugbank` | Drug-target and drug-drug interactions. |
+| DisGeNET | `disgenet` | Gene-disease and gene-phenotype associations. |
+| DrugCentral | `drugcentral` | Drug indications and contraindications for diseases and phenotypes. |
+| OnSIDES | `onsides` | Adverse drug reactions. |
+| CTD | `ctd` | Environmental exposures and their disease, gene, and Gene Ontology outcomes. |
+| PPI | `ppi` | Protein-protein interactions from PrimeKG. |
 
 ## Installation
 
@@ -337,7 +362,7 @@ uv run am-diag ingest --graph med \
 uv run am-diag search --project clinical "first-line treatment for hypertension"
 uv run am-diag qa --project clinical --datasets careqa,medqa --limit 10
 
-# Inspect / resume durable jobs
+# Inspect durable jobs
 uv run am-diag jobs list
 ```
 
@@ -352,6 +377,26 @@ uv run am-diag graphs create --graph-id okg \
 ```
 
 A graph keeps the copy of the ontology it was created with. To move to another ontology or to a newer OptimusKG release, create a new graph and ingest the sources into it again.
+
+### CLI reference
+
+Every command is `uv run am-diag <command>`. Run any command with `--help` for the full option list.
+
+| Command | Purpose |
+|---------|---------|
+| `graphs create` | Register a graph. Key options are `--graph-id`, `--graph-backend` (`neo4j` or `falkordb`), `--vector-backend` (`qdrant` or `weaviate`), `--schema`, and `--ontology-mode`. |
+| `graphs list` | List registered graphs. |
+| `graphs delete --graph-id <id>` | Remove a graph from the registry. Add `--drop-data` to also delete its data. |
+| `projects create --project <id> --graphs <ids>` | Create a project from a comma-separated list of graph ids. |
+| `projects list` | List projects. |
+| `projects add-graph` / `projects remove-graph` | Add or remove one graph (`--project`, `--graph`) in an existing project. |
+| `ingest --graph <id> --source <spec>` | Ingest one or more sources as a durable, resumable job. Repeat `--source` for each `corpus:<key>` or `loader:<key>:<dir>`. Add `--reference-dir` for loaders that need reference data and `--finalize` to run community detection afterward. |
+| `finalize --graph <id>` | Run community detection and summarization on a graph that is already ingested. |
+| `search --project <id> "<query>"` | Run a federated search. `--graphs` limits the graphs and `--recipe` selects a retrieval recipe (default `hybrid_rrf`). |
+| `qa --project <id> --datasets <keys>` | Run batch QA over datasets. `--limit` caps samples per dataset and `--output` sets the results file (default `qa_results.json`). |
+| `jobs list` / `jobs get --job-id <id>` | List durable jobs or show one. |
+
+Dataset keys for `--datasets` are `careqa`, `careqa_reasoning`, `healthbench`, `medcase_reasoning`, `medmcqa`, `medqa`, `medxpertqa`, `mmlu_med`, `mmlu_pro_health`, `nejm_diagnostic`, `nejm_qa`, `pubhealthbench`, `pubhealthbench_freeform`, `pubmedqa`, `rar_med`, and `supergpqa_med`.
 
 ### Programmatic Usage
 
@@ -415,7 +460,7 @@ am_diag/
 ├── common/
 │   ├── data_models/        # all data models (Entity, Relation, Community, Chunk, ...)
 │   ├── cypher/             # Cypher files
-│   └── schema/             # Medical Schema
+│   └── schema/             # Medical, OptimusKG, and per-source schemas
 ├── chunking/               # Recursive-character + markitdown chunkers
 ├── graph_construction/
 │   ├── extract/            # GLiNER, GLiREL, LLM extractors + combiner
@@ -423,18 +468,21 @@ am_diag/
 │   ├── aggregate.py        # Cross-chunk set-union
 │   ├── resolve/            # Deterministic + cluster + LLM resolution
 │   └── community/          # Leiden / GDS detection + Summarization
-├── ingestion/              # Durable ingestion job engine + cache
+├── ingestion/              # Durable ingestion and QA job engine + cache + search pipeline
 ├── db/
-│   ├── graph/              # Neo4j client + record serialization
+│   ├── graph/              # Neo4j and FalkorDB graph stores + record serialization
 │   └── vector/             # Qdrant / Weaviate stores
 ├── vector/                 # Embedders + rerankers
 ├── retrieval/              # methods · retrievers · rerankers · recipes · SearchEngine
 ├── agents/                 # Agent harness
 ├── evaluation/             # Dataset metrics + judging
-├── api/                    # Public API: Workspace, Graph, Project
+├── api/                    # Public API: Workspace, Graph, Project, federation
 ├── cli/                    # am-diag CLI + loader registries
 ├── llm/                    # BAML sources + generated client
-└── loaders/                # Corpus, dataset and graph loaders
+└── loaders/
+    ├── corpus/             # Streaming text corpus loaders
+    ├── dataset/            # QA benchmark dataset loaders
+    └── graph/              # Pre-built biomedical graph loaders
 
 tests/
 ├── conftest.py             # collection hook (marker auto-apply)
