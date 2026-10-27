@@ -119,9 +119,12 @@ class GraphAdmin:
         persisted. A graph without a stored ontology records the replacement.
 
         Raises:
+            GraphNotFoundError: If the graph is not registered.
             OntologyVersionMismatch: If the graph already holds a different
                 ontology than ``schema``.
         """
+        # Resolve the record first so an unknown id fails before any backend write.
+        self._registry.get_graph(graph_id)
         if schema is not None:
             graph = self._pool.graph(graph_id)
             await graph.graph_store.register_ontology(schema)

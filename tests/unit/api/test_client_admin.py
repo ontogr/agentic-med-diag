@@ -202,6 +202,11 @@ class TestGraphAdmin:
                 await client.graphs.create("med", neo4j=_neo4j(), vector=_vector())
         assert await client.graphs.list() == []
 
+    async def test_update_unknown_graph_raises_before_touching_backend(self, client):
+        """Verify update(schema=...) reports an unknown id without a backend call."""
+        with pytest.raises(GraphNotFoundError):
+            await client.graphs.update("ghost", schema=GraphSchema(version="2.0"))
+
     async def test_delete_unknown_graph_does_not_wipe_data(self, client):
         """Verify delete(drop_data=True) validates the record before touching data."""
         with pytest.raises(GraphNotFoundError):
