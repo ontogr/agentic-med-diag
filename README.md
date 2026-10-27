@@ -22,11 +22,11 @@ This repository implements an Agentic GraphRAG system for Medical Diagnosis. It 
 
 - **Schema-driven knowledge graph** built from a runtime-injectable schema of medical entity and relation types that drives every extractor, resolver, summarizer, and prompt.
 - **Three-extractor fusion** combining GLiNER NER, GLiREL relation extraction, and LLM extraction, merged with configurable union, intersection, max-score, or GLiNER-primary strategies.
-- **Two-stage entity resolution** using a deterministic SemHash/MinHash pre-filter followed by clustering, BM25 + cosine candidate retrieval, and LLM deduplication.
+- **Two-stage entity resolution** module using a deterministic SemHash/MinHash pre-filter followed by clustering, BM25 + cosine candidate retrieval, and LLM deduplication. Ingestion and finalization do not call it yet, so text-extracted entities have no canonical names or aliases until it is wired in.
 - **Hierarchical community detection** using the Leiden algorithm (Graspologic or Neo4j GDS), with a community summarizer module for per-cluster reports. Ingestion and finalization do not call it yet, so graphs have no community reports until it is wired in.
-- **Four vector collections** (entity, relation, chunk, community) for complementary semantic search.
+- **Four vector collections** (entity, relation, chunk, community) for complementary semantic search. Ingestion fills the first three, and the community collection stays empty until community reports are generated.
 - **Layered retrieval** combining atomic search methods, pluggable rerankers, and data-only recipes, fused with Reciprocal Rank Fusion or a cross-encoder.
-- **Agentic plan–research–verify loop** that decomposes the question, runs parallel researchers over retrieval tools, and gates synthesis on a deterministic sufficiency check.
+- **Agentic plan–research–verify loop** that decomposes the question, runs parallel researchers over retrieval tools, and has a verifier judge whether the evidence is sufficient before the answer is written.
 - **Pluggable storage** with Neo4j or FalkorDB for the graph and Qdrant or Weaviate for vectors.
 
 The system is built using:  
@@ -36,7 +36,7 @@ The system is built using:
 - [**Neo4j**](https://neo4j.com/) or [**FalkorDB**](https://www.falkordb.com/) for the persistent knowledge graph with typed nodes, edges, and hierarchical communities.  
 - [**Qdrant**](https://qdrant.io/) / [**Weaviate**](https://weaviate.io/) for vector search and hybrid (dense + BM25) retrieval.  
 - [**BAML**](https://www.boundaryml.com/) for type-safe, schema-injected LLM functions.  
-- [**LangGraph**](https://www.langchain.com/langgraph) for orchestrating the extraction, embedding, and search pipelines.  
+- [**LangGraph**](https://www.langchain.com/langgraph) for the search pipeline graph and the compiled agent graph.  
 - [**DeepAgents**](https://github.com/langchain-ai/deepagents) for the multi-agent reasoning loop.  
 - [**ZeroEntropy**](https://www.zeroentropy.dev) for embeddings and reranking.  
 
@@ -60,19 +60,19 @@ The system stores everything in a single typed property graph in Neo4j or Falkor
 ### Entities
 
 - An entity carries its `name`, medical `label` (Disease, Drug, …), an optional `description`, an extraction `score`, and free-form `schema_properties`. Its identity is `(name, label)`.
-- Resolution later fills in a `canonical_name` and a list of `aliases` (for example, *metformin → metformin HCl, Glucophage*).
+- The `canonical_name` and the list of `aliases` are empty for entities extracted from text. The resolver module can fill them in (for example, *metformin → metformin HCl, Glucophage*), but ingestion does not run it yet. Graph loaders copy both fields from the source when it provides them.
 - A `provenance` record tracks which extractors produced the entity, the surface forms seen in the text, and the source chunk ids and offsets.
 
 ### Relations
 
 - A relation is a directed subject–predicate–object triple (`head → type → tail`) with a `description`, `score`, and properties.
-- Before resolution, endpoints are known only by name; resolution links them to canonical entity ids.
-- The schema constrains each relation's valid head and tail types - `TREATED_BY` only connects `Disease → {Drug, DrugClass, Procedure}` - which the extractor uses to reject implausible triples.
+- Extraction links each relation's head and tail names to entity ids. A relation is dropped when an endpoint matches no extracted entity, or when it matches several and the schema's allowed head and tail labels do not narrow them to one pair.
+- The schema constrains each relation's valid head and tail types - `TREATED_BY` only connects `Disease → {Drug, DrugClass, Procedure}`. The constraint shapes the LLM prompt and the GLiREL labels, and it decides between ambiguous endpoint matches. Facts that break it are dropped only in `strict` ontology mode.
 - All relations persist as generic `:RELATES_TO` edges with the medical type in the `type` property.
 
 ### Communities
 
-- After resolution, hierarchical Leiden partitions the resolved relation graph into nested communities. Each `Community` records its level, its parent community, and the entities and relations it contains.
+- Finalization runs hierarchical Leiden over the persisted relation graph and partitions it into nested communities. Each `Community` records its level, its parent community, and the entities and relations it contains.
 - The summarizer in `am_diag/graph_construction/community/summarize.py` can produce a `CommunityReport` for each community, bottom-up by level: a title, a summary, structured findings, and a clinical-importance rating. Ingestion and finalization do not call it, so no `CommunityReport` nodes are written yet.
 - Once reports exist, they give the agent a thematic, cluster-level view, so a broad question can be answered from a single summary instead of many low-level facts.
 
@@ -128,39 +128,44 @@ The system has two data flows: ingestion (text and pre-built graphs into a knowl
 
 ## Ingestion Pipeline
 
-Corpus ingestion streams documents, chunks them, and runs a LangGraph pipeline of graph construction components. State accumulates into a `KnowledgeGraph` that is written to the graph store and the vector store. The stages run in order:
+Corpus ingestion streams documents, chunks them, and processes the chunks in slices of `embed_batch_size` chunks (256 by default). Each slice is extracted, embedded, and written to the graph store and the vector store. Extraction results are cached by chunk text, schema version, and extractor settings, and embeddings are cached by text and model, so unchanged chunks are not recomputed. The stages run in order, and stages 2 to 5 run separately for each chunk:
 
-1. **Extract:** Each chunk is processed by up to three extractors that share the injected schema:
+1. **Chunk:** The chunker (recursive character splitting by default) splits each document into chunks.
+2. **Extract:** Each chunk is processed by up to three extractors that share the injected schema:
    - **GLiNER** runs batch zero-shot NER, steered by each entity type's natural-language label.
    - **GLiREL** runs zero-shot relation extraction over GLiNER's entity spans, so GLiREL requires GLiNER.
    - **LLM** runs a BAML extraction function with dynamic entity and relation enums plus the allowed head-tail type pairs, constraining the model to the schema. Chunks are processed concurrently with bounded concurrency and isolated retries.
-2. **Combine:** The three extractor outputs are merged per chunk using a configurable strategy: `union` (superset, merging provenance), `intersection` (only items every extractor found), `max_score` (highest-confidence version), or `gliner_primary` (GLiNER spans supplemented by the LLM).
-3. **Normalize:** Within a chunk, entities are deduplicated by `(normalized name, label)` and relations by `(normalized head, normalized tail, type)`, merging sources, surface forms, chunk ids, scores, and properties. Low-confidence and too-short entities are filtered.
-4. **Aggregate:** A deterministic, zero-LLM set-union across all chunks collapses the same keys into one cross-chunk candidate set.
-5. **Resolve:** Entity and relation-type names are resolved in two stages: a deterministic deduplicator collapses exact and near-exact variants (SemHash, MinHash-LSH) and clusters the residual names; then, within each cluster, BM25 + cosine fusion retrieves candidates and an LLM selects exact duplicates and a single canonical alias. The result writes `canonical_name` and `aliases` onto entities and links relation endpoints to canonical entity ids.
-6. **Detect communities:** Hierarchical Leiden runs over the resolved relation graph. Two interchangeable backends share one base class: graspologic-native (default) and Neo4j GDS (Neo4j graphs only). The output is a tree of communities with levels and parents.
-7. **Summarize (not run by ingestion):** The summarizer module walks communities bottom-up by level, builds a degree-ranked, token-budgeted context for each, and passes it to an LLM that produces a titled report. Neither `--finalize` nor `finalize` calls it, so this step does not run for corpus graphs.
+3. **Combine:** The three extractor outputs are merged per chunk using a configurable strategy: `union` (superset, merging provenance), `intersection` (only items every extractor found), `max_score` (highest-confidence version), or `gliner_primary` (GLiNER spans supplemented by the LLM).
+4. **Normalize:** Within a chunk, entities are deduplicated by `(normalized name, label)` and relations by `(normalized head, normalized tail, type)`, merging sources, surface forms, chunk ids, scores, and properties. Low-confidence and too-short entities are filtered.
+5. **Link and prune:** Each relation's head and tail names are matched to entity ids. A relation is dropped when an endpoint matches no entity, or matches several that the allowed head and tail labels cannot tell apart. The ontology pruner then applies the graph's ontology mode (see [Schema](#schema)). The default `open` mode keeps every extracted fact, `warn` keeps facts that break the schema and reports them, and `strict` drops those facts. In `warn` and `strict` modes, a relation that the schema allows only with its endpoints reversed is swapped into the schema direction.
+6. **Embed and write:** The job embeds the slice's entities, relations, and chunks (see [Embedding Pipeline](#embedding-pipeline)), upserts the vectors, and then writes the slice's documents, chunks, entities, and relations to the graph store.
 
-Resolution runs before community detection so the graph is clustered over canonical entities.
+Graph loaders (see [Graph loaders](#graph-loaders)) take a shorter path. They read a pre-built biomedical graph and produce typed `Entity` and `Relation` records directly, so they skip chunking and extraction and join the pipeline at the embed and write stage.
 
-Graph loaders (see [Graph loaders](#graph-loaders)) take a shorter path. They read a pre-built biomedical graph and produce typed `Entity` and `Relation` records directly, so they skip chunking and extraction and join the pipeline at finalization. Finalization runs community detection only, for corpus and loader graphs alike. It stores the communities and links entities to them, but it does not generate `CommunityReport` summaries, so no graph has community reports yet.
+### Finalization
+
+Finalization is a separate step. `ingest --finalize` runs it after the last source, and `finalize` runs it on a graph that is already ingested. It runs hierarchical Leiden once over the whole persisted graph, for corpus and loader graphs alike. Two interchangeable backends share one base class. Neo4j graphs use Neo4j GDS, and graph stores without GDS, such as FalkorDB, use graspologic-native in Python. The output is a tree of communities with levels and parents. Finalization replaces the communities from any earlier run, stores the new ones, and links entities to their communities and communities to their parents. It does not generate `CommunityReport` summaries, so no graph has community reports yet.
+
+### Components that ingestion does not run
+
+The `am_diag.graph_construction` package also contains three components that no ingestion path calls. They are exported from the package, but neither `ingest` nor `finalize` runs them, so the architecture diagram shows them apart from the pipeline.
+
+- **Aggregate:** A deterministic, zero-LLM set-union across all chunks collapses the same keys into one cross-chunk candidate set.
+- **Resolve:** Entity and relation-type names are resolved in two stages: a deterministic deduplicator collapses exact and near-exact variants (SemHash, MinHash-LSH) and clusters the residual names; then, within each cluster, BM25 + cosine fusion retrieves candidates and an LLM selects exact duplicates and a single canonical alias. The result writes `canonical_name` and `aliases` onto entities and links relation endpoints to canonical entity ids.
+- **Summarize:** The summarizer module walks communities bottom-up by level, builds a degree-ranked, token-budgeted context for each, and passes it to an LLM that produces a titled report.
 
 ## Embedding Pipeline
 
-After graph construction, the embeddable fields of each model are vectorised and upserted into four vector collections.
+During ingestion, the job vectorizes the embeddable fields of entities, relations, and chunks and upserts them into three vector collections. A fourth collection, for community reports, is configured but nothing writes to it yet.
 
 Source | Text embedded |
 --------|---------------|
-Entity | canonical name |
-Relation | three representations (below) |
+Entity | `canonical_name`, or `name` when it is empty |
+Relation | description, or `head type tail` when it has no description |
 Chunk | chunk text |
-CommunityReport | report summary |
+CommunityReport | report summary (not written by ingestion) |
 
-A single relation is embedded three ways, all keyed by the same relation id, because one vector cannot capture the predicate, the participants, and the full statement at once:
-
-- **Edge fact** - the relation description (for example, *metformin treats type 2 diabetes*).
-- **Edge type** - the predicate alone (for example, *TREATED_BY*).
-- **Full SPO** - the subject–predicate–object sentence.
+Each relation is embedded once, keyed by its relation id. A relation without a description is embedded as its head name, type, and tail name, for example *type 2 diabetes TREATED_BY metformin*.
 
 Collections support lazy creation, batch upsert, and native vector quantization.
 
@@ -202,9 +207,9 @@ The agent is a DeepAgents harness that coordinates three subagents with an orche
 
 - **Planner** decomposes the clinical question into focused sub-questions, each mapped to a retrieval recipe. It has no tools and works from the question text.
 - **Researcher** is spawned in parallel, one per sub-question. Each holds the retrieval tools (entity, relation, chunk, community, hybrid, and text-to-Cypher search, plus `entity_lookup`, `relation_expand`, `enumerate_entities`, a broad `multi_path` search, and a community map-reduce tool) and returns evidence items with citations.
-- **Verifier** reads the gathered evidence and returns a structured assessment - a coverage score, an evidence-depth score, missing pieces, targeted follow-ups, and unsupported claims. A deterministic numeric gate decides whether the evidence is sufficient.
+- **Verifier** reads the gathered evidence and returns a structured assessment: a coverage score, an evidence-depth score, missing pieces, targeted follow-ups, unsupported claims, and an `is_sufficient` verdict. The verifier model sets the verdict. Its prompt tells it to mark the evidence insufficient when any key aspect is unsupported, and no code applies a numeric threshold to the scores.
 
-When the gate fails, the targeted follow-ups seed another planning round, so the loop converges on missing information rather than repeating searches. When it passes (or iterations are exhausted), the orchestrator synthesises a structured answer with answer text, source citations, a confidence score, clinical caveats, and an answerability flag.
+When the verdict is insufficient, the orchestrator re-runs the researchers on the targeted follow-ups and missing pieces, so the loop converges on missing information rather than repeating searches. The orchestrator prompt tells it to stop after a maximum number of iterations. Code does not count the iterations, and the only enforced bound is LangGraph's `recursion_limit` (99 by default). When the evidence is sufficient, or the orchestrator stops re-running the researchers, it synthesizes a structured answer with answer text, source citations, a confidence score, clinical caveats, and an answerability flag.
 
 ## Structured LLM Output (BAML)
 
@@ -352,7 +357,7 @@ Two parts of the schema are not offered to the text extractors. These are the Ge
 - `sources` lists the datasets that assert the edge directly, and `indirect_sources` lists the datasets that assert it indirectly.
 - Gene `synonyms` and `xrefs` are flattened to plain strings, and each cross-reference id is written as `source:id`.
 - The per-drug `mol_file_base64` and `mol_image_base64` structure files are not stored.
-- The graph loads as typed entities and relations without chunking or extraction, so it skips the text pipeline and joins at finalization. Finalization runs community detection only and does not write community reports.
+- The graph loads as typed entities and relations without chunking or extraction, so it skips the text pipeline and joins at the embed and write stage. Finalization runs community detection only and does not write community reports.
 
 OptimusKG keeps one edge for each pair of nodes and structural label, and it records the winning relation in `type`. When sources disagree, `properties.relation_assertions` holds every statement. The loader adds a flat `asserted_relations` list with the distinct relations. A drug and a disease can be asserted as both `INDICATION` and `CONTRAINDICATION`, and `type` shows only one of them. For any safety-sensitive question, read `asserted_relations` and not `type` alone. This matters most for drug-disease and drug-phenotype edges.
 
@@ -589,9 +594,9 @@ am_diag/
 ├── graph_construction/
 │   ├── extract/            # GLiNER, GLiREL, LLM extractors + combiner
 │   ├── normalize.py        # Per-chunk dedup/normalization
-│   ├── aggregate.py        # Cross-chunk set-union
-│   ├── resolve/            # Deterministic + cluster + LLM resolution
-│   └── community/          # Leiden / GDS detection + Summarization
+│   ├── aggregate.py        # Cross-chunk set-union (not run by ingestion)
+│   ├── resolve/            # Deterministic + cluster + LLM resolution (not run by ingestion)
+│   └── community/          # Leiden / GDS detection; the summarizer is not run by ingestion
 ├── ingestion/              # Durable ingestion and QA job engine + cache + search pipeline
 ├── db/
 │   ├── graph/              # Neo4j and FalkorDB graph stores + record serialization
