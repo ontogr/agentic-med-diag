@@ -138,7 +138,7 @@ Corpus ingestion streams documents, chunks them, and runs a LangGraph pipeline o
 3. **Normalize:** Within a chunk, entities are deduplicated by `(normalized name, label)` and relations by `(normalized head, normalized tail, type)`, merging sources, surface forms, chunk ids, scores, and properties. Low-confidence and too-short entities are filtered.
 4. **Aggregate:** A deterministic, zero-LLM set-union across all chunks collapses the same keys into one cross-chunk candidate set.
 5. **Resolve:** Entity and relation-type names are resolved in two stages: a deterministic deduplicator collapses exact and near-exact variants (SemHash, MinHash-LSH) and clusters the residual names; then, within each cluster, BM25 + cosine fusion retrieves candidates and an LLM selects exact duplicates and a single canonical alias. The result writes `canonical_name` and `aliases` onto entities and links relation endpoints to canonical entity ids.
-6. **Detect communities:** Hierarchical Leiden runs over the resolved relation graph. Two interchangeable backends share one base class: graspologic-native (default) and Neo4j GDS. The output is a tree of communities with levels and parents.
+6. **Detect communities:** Hierarchical Leiden runs over the resolved relation graph. Two interchangeable backends share one base class: graspologic-native (default) and Neo4j GDS (Neo4j graphs only). The output is a tree of communities with levels and parents.
 7. **Summarize:** Communities are walked bottom-up by level; a degree-ranked, token-budgeted context is built for each and passed to an LLM that produces a titled report with structured findings and a clinical-importance rating.
 
 Resolution runs before community detection so the graph is clustered over canonical entities.
@@ -337,7 +337,7 @@ AGENT_MODEL=gpt-5.5
 ### Running the Pipelines
 
 Everything runs through one client (`Workspace`) and one CLI (`am-diag`). A **graph**
-is a self-contained GraphRAG deployment (its own Neo4j, vector store, and schema);
+is a self-contained GraphRAG deployment (its own Neo4j or FalkorDB database, vector store, and schema);
 a **project** is an owned container of graphs and the agent's federation boundary.
 
 ```bash
