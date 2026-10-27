@@ -13,16 +13,8 @@ from uuid import UUID
 from am_diag.common.data_models.chunk import Chunk
 from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.relation import Relation
-from am_diag.common.data_models.search import CypherRow, Fact, SearchResult
+from am_diag.common.data_models.search import CypherRow, Fact, SearchResult, Seeds
 from am_diag.retrieval.filters import SearchFilters
-
-
-@dataclass(frozen=True)
-class Seeds:
-    """Ranked, de-duplicated ids that expanders start from."""
-
-    entity_ids: list[str]
-    chunk_ids: list[str]
 
 
 @dataclass(frozen=True)
@@ -108,7 +100,6 @@ def collect_seeds(results: list[SearchResult], limit: int = 15) -> Seeds:
 __all__ = [
     "Expander",
     "ExpansionContext",
-    "Seeds",
     "collect_seeds",
     "entity_label",
 ]

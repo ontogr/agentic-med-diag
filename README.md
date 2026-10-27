@@ -177,7 +177,7 @@ Recipes are data-only constants that select which methods to run and how to fuse
 | `multi_path` | relation + entity lookup + entity + chunk + chunk keywords + community, with all expanders | cosine |
 | `multi_path_cypher` | `multi_path` + text-to-Cypher | cosine |
 
-Results from the recipe's methods are gathered concurrently, then its expanders run, and the combined lists are fused with Reciprocal Rank Fusion, a cross-encoder reranker, or cosine similarity to the query (chunks only; other results follow). Fusion degrades gracefully, ignoring any method that returns no results. Rows from text-to-Cypher skip fusion: they come first, unchanged, and do not count against the recipe's `limit`. Entity ids in those rows still seed the expanders. Returned chunks are labelled with their source document's title. The agent's `multi_path` tool returns a sectioned context (an answer-format hint, graph query results, entities, relationships, passages) next to the raw results.
+Results from the recipe's methods are gathered concurrently, then its expanders run, and the combined lists are fused with Reciprocal Rank Fusion, a cross-encoder reranker, or cosine similarity to the query (chunks are reordered among the positions fusion gave them; other results keep their place). Fusion degrades gracefully, ignoring any method that returns no results. Rows from text-to-Cypher skip fusion: they come first, unchanged, and do not count against the recipe's `limit`. Entity ids in those rows still seed the expanders. Returned chunks are labelled with their source document's title. The agent's `multi_path` tool returns a sectioned context (an answer-format hint, graph query results, entities, relationships, passages) next to the raw results.
 
 ## Agentic RAG Loop
 

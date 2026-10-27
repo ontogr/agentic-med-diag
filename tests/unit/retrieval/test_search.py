@@ -405,3 +405,47 @@ class TestSearchEngineStages:
         results = await engine.search("q", recipe=SearchConfig(methods=["chunk"]))
 
         assert results[0].item.properties["document_name"] == "Asthma review"
+
+    async def test_cosine_keeps_non_chunk_results_inside_the_limit(
+        self,
+        engine: SearchEngine,
+        graph: MagicMock,
+        vectors: MagicMock,
+        embedder: MagicMock,
+    ) -> None:
+        """Truncation to the limit does not push entities out behind chunks."""
+        near, far = uuid4(), uuid4()
+
+        def chunk(chunk_id, text):
+            return SearchResult(
+                item=Chunk(
+                    id=chunk_id,
+                    text=text,
+                    document_id=uuid4(),
+                    document_source="s",
+                    chunk_index=0,
+                    chunk_size=1,
+                    cut_type="x",
+                ),
+                score=0.5,
+                source="chunk",
+            )
+
+        graph.execute_query = AsyncMock(return_value=[])
+        engine._chunk.retrieve = AsyncMock(
+            return_value=[chunk(far, "far"), chunk(near, "near")]
+        )
+        engine._entity.retrieve = AsyncMock(return_value=[_entity_result("asthma")])
+        embedder.embed = AsyncMock(return_value=[[1.0, 0.0]])
+        vectors.retrieve = AsyncMock(
+            return_value=[
+                VectorRecord(id=near, vector=[1.0, 0.0]),
+                VectorRecord(id=far, vector=[0.0, 1.0]),
+            ]
+        )
+        recipe = SearchConfig(methods=["chunk", "entity"], reranker="cosine", limit=2)
+
+        results = await engine.search("q", recipe=recipe)
+
+        assert [type(r.item).__name__ for r in results] == ["Chunk", "Entity"]
+        assert results[0].item.text == "near"

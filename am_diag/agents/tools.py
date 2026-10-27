@@ -193,7 +193,7 @@ def make_retrieval_tools(search_engine: SearchProvider) -> list:
         """
         results = await search_engine.search(query, recipe=recipes.MULTI_PATH)
         context = assemble_context(results, hint=question_hint(query))
-        return {"context": context.text, "results": _serialize_results(results)}
+        return {"context": context, "results": _serialize_results(results)}
 
     @tool
     @tool_retry_decorator()

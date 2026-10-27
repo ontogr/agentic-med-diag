@@ -383,7 +383,12 @@ class SearchEngine:
         query_vector: list[float],
         fused: list[SearchResult],
     ) -> list[SearchResult]:
-        """Order chunks by cosine similarity; other results follow in fused order."""
+        """Order chunks by cosine similarity within their fused positions.
+
+        Each chunk slot in the fused list is refilled with the next chunk by cosine
+        similarity, so the mix of result types that fusion chose is kept and
+        truncating to the recipe limit cannot drop the non-chunk results.
+        """
         vectors = await fetch_chunk_vectors(
             self._vector_store,
             self._config.chunk_collection,
@@ -392,11 +397,15 @@ class SearchEngine:
             min_coverage=self._config.cosine_vector_coverage,
         )
         chunks = [r for r in fused if isinstance(r.item, Chunk)]
-        others = [r for r in fused if not isinstance(r.item, Chunk)]
         ranked = cosine_rerank(query_vector, chunks, vectors)
-        ranked_ids = {id(r) for r in ranked}
-        unranked = [r for r in chunks if id(r) not in ranked_ids]
-        return [*ranked, *others, *unranked]
+        ranked_ids = {r.item.id for r in ranked if isinstance(r.item, Chunk)}
+        unranked = [
+            r
+            for r in chunks
+            if isinstance(r.item, Chunk) and r.item.id not in ranked_ids
+        ]
+        chunk_order = iter([*ranked, *unranked])
+        return [next(chunk_order) if isinstance(r.item, Chunk) else r for r in fused]
 
 
 def _split_cypher(

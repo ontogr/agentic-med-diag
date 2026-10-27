@@ -67,6 +67,15 @@ class Fact(BaseModel):
         return self.text()
 
 
+class Seeds(BaseModel):
+    """Ranked, de-duplicated ids that expanders start from."""
+
+    model_config = ConfigDict(frozen=True)
+
+    entity_ids: list[str]
+    chunk_ids: list[str]
+
+
 class SearchResult(BaseModel):
     """A single result from the retrieval layer, after hydration.
 

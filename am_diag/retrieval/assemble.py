@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from am_diag.common.data_models.chunk import Chunk
 from am_diag.common.data_models.community_report import CommunityReport
 from am_diag.common.data_models.entity import Entity
@@ -11,13 +9,8 @@ from am_diag.common.data_models.search import CypherRow, Fact, SearchResult
 
 
 _DEFAULT_SCOPE = "Rows a graph query returned for the question:"
-
-
-@dataclass(frozen=True)
-class SectionedContext:
-    """Context text built from search results."""
-
-    text: str
+_DEFAULT_MAX_CHARACTERS = 4000
+_SECTION_SEPARATOR = "\n\n"
 
 
 def assemble_context(
@@ -25,29 +18,50 @@ def assemble_context(
     *,
     hint: str | None = None,
     scope: str | None = None,
-) -> SectionedContext:
+    max_characters: int = _DEFAULT_MAX_CHARACTERS,
+) -> str:
     """Build a sectioned context string from ``results``.
 
     Sections appear in this order: hint, graph query results, key entities,
     relationships, passages and community reports. Empty sections are left out.
+    Lines are added in rank order until ``max_characters`` would be exceeded, so
+    the text never overruns the budget. A section whose first line does not fit is
+    left out, header included, and so is a hint that does not fit.
 
     Args:
         results: Search results, in rank order.
         hint: Optional answer-format hint placed first.
         scope: Sentence placed above the graph query rows. An aggregate such as a
             count has no scope of its own, so this says what the rows describe.
+        max_characters: Hard upper bound on the length of the returned text.
 
     Returns:
         The assembled context.
     """
     sections: list[str] = []
-    if hint:
-        sections.append(hint)
 
-    rows = [r for r in results if isinstance(r.item, CypherRow)]
+    def add(header: str, lines: list[str]) -> None:
+        """Append ``header`` with as many ``lines`` as fit in the budget."""
+        used = len(_SECTION_SEPARATOR.join(sections))
+        separator = len(_SECTION_SEPARATOR) if sections else 0
+        text = header
+        for line in lines:
+            candidate = f"{text}\n{line}"
+            if used + separator + len(candidate) > max_characters:
+                break
+            text = candidate
+        if lines and text == header:
+            return
+        if used + separator + len(text) > max_characters:
+            return
+        sections.append(text)
+
+    if hint:
+        add(hint, [])
+
+    rows = [f"- {r.item}" for r in results if isinstance(r.item, CypherRow)]
     if rows:
-        lines = "\n".join(f"- {r.item}" for r in rows)
-        sections.append(f"## Graph query results\n{scope or _DEFAULT_SCOPE}\n{lines}")
+        add(f"## Graph query results\n{scope or _DEFAULT_SCOPE}", rows)
 
     for title, item_type in (
         ("## Key entities", Entity),
@@ -55,11 +69,10 @@ def assemble_context(
         ("## Passages", Chunk),
         ("## Community reports", CommunityReport),
     ):
-        picked = [r for r in results if isinstance(r.item, item_type)]
-        if picked:
-            lines = "\n".join(f"- {_line(r.item)}" for r in picked)
-            sections.append(f"{title}\n{lines}")
-    return SectionedContext("\n\n".join(sections))
+        lines = [f"- {_line(r.item)}" for r in results if isinstance(r.item, item_type)]
+        if lines:
+            add(title, lines)
+    return _SECTION_SEPARATOR.join(sections)
 
 
 def _line(item: object) -> str:
@@ -76,4 +89,4 @@ def _line(item: object) -> str:
     return str(item)
 
 
-__all__ = ["SectionedContext", "assemble_context"]
+__all__ = ["assemble_context"]

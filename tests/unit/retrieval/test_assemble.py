@@ -49,7 +49,7 @@ class TestAssembleContext:
             results, hint="Answer format: give the number first.", scope="Counts:"
         )
 
-        assert context.text == (
+        assert context == (
             "Answer format: give the number first.\n\n"
             "## Graph query results\nCounts:\n- drugs: 4\n\n"
             "## Key entities\n- asthma (Disease)\n\n"
@@ -73,10 +73,31 @@ class TestAssembleContext:
 
         context = assemble_context([_result(chunk)])
 
-        assert (
-            context.text == "## Passages\n- [Source: Asthma review] Asthma is chronic."
-        )
+        assert context == "## Passages\n- [Source: Asthma review] Asthma is chronic."
 
     def test_empty_results_give_empty_text(self) -> None:
         """No results and no hint produce no text."""
-        assert assemble_context([]).text == ""
+        assert assemble_context([]) == ""
+
+    def test_stops_adding_lines_at_the_character_budget(self) -> None:
+        """Lines past the budget are dropped and the text never exceeds it."""
+        entities = [
+            _result(Entity(id=uuid4(), name=f"entity{i}", label="Drug"))
+            for i in range(10)
+        ]
+
+        context = assemble_context(entities, max_characters=60)
+
+        assert context == (
+            "## Key entities\n- entity0 (Drug)\n- entity1 (Drug)\n- entity2 (Drug)"
+        )
+        assert len(context) <= 60
+
+    def test_leaves_out_a_section_whose_first_line_does_not_fit(self) -> None:
+        """A section with no room for one line is dropped with its header."""
+        entity = _result(Entity(id=uuid4(), name="asthma", label="Disease"))
+        row = _result(CypherRow(values={"drugs": 4}))
+
+        context = assemble_context([row, entity], max_characters=40)
+
+        assert context == "## Key entities\n- asthma (Disease)"
