@@ -17,6 +17,7 @@ from am_diag.graph_construction.extract.gliner_entities import GLiNEREntityExtra
 from am_diag.graph_construction.extract.glirel_relations import GLiRELRelationExtractor
 from am_diag.graph_construction.extract.llm import LLMExtractor
 from am_diag.graph_construction.normalize import EntityRelationNormalizer
+from am_diag.graph_construction.prune import OntologyPruner
 from am_diag.graph_construction.resolve.text import normalize_text
 
 
@@ -30,11 +31,12 @@ class ComposedExtractor(Extractor):
     ``head_id``/``tail_id`` set by name lookup so they survive the write layer
     (``neo4j.py`` drops relations lacking endpoint ids). GLiREL is driven via
     ``extract_from_entities`` with GLiNER's spans grouped per chunk, since its
-    ``extract`` returns nothing on its own.
+    ``extract`` returns nothing on its own. The output is then pruned to the
+    schema according to its ``mode``.
     """
 
     def __init__(self, config: ExtractionPipelineConfig, schema: GraphSchema) -> None:
-        """Build the selected extractors, combiner, and normalizer."""
+        """Build the selected extractors, combiner, normalizer, and pruner."""
         self._config = config
         self._schema = schema
         self._gliner = (
@@ -46,6 +48,7 @@ class ComposedExtractor(Extractor):
         self._llm = LLMExtractor(config, schema) if config.use_llm else None
         self._combiner = ExtractionCombiner(config)
         self._normalizer = EntityRelationNormalizer(config)
+        self._pruner = OntologyPruner(schema)
 
     async def extract(self, chunks: list[Chunk]) -> tuple[list[Entity], list[Relation]]:
         """Extract, combine, normalize, and endpoint-link over *chunks*."""
@@ -72,6 +75,7 @@ class ComposedExtractor(Extractor):
         entities, relations = self._combiner.combine(results)
         entities, relations = await self._normalizer.normalize(entities, relations, [])
         relations = self._link_endpoints(entities, relations)
+        entities, relations, _ = self._pruner.prune(entities, relations)
         return entities, relations
 
     @staticmethod

@@ -26,7 +26,7 @@ from am_diag.common.schema import MEDICAL_GRAPHRAG_SCHEMA
 def _fake_graph(tmp_path) -> Graph:
     """Build a real Graph over fake dependencies, attachable under id 'med'."""
     return Graph(
-        graph_store=SimpleNamespace(close=AsyncMock()),
+        graph_store=SimpleNamespace(close=AsyncMock(), register_ontology=AsyncMock()),
         vector_store=SimpleNamespace(close=AsyncMock()),
         embedder=SimpleNamespace(close=AsyncMock()),
         search_engine=SimpleNamespace(),

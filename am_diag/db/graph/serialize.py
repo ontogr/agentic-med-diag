@@ -24,6 +24,11 @@ from am_diag.common.data_models.community_report import CommunityReport
 from am_diag.common.data_models.document import Document
 from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.relation import Relation
+from am_diag.common.data_models.schema import (
+    GraphSchema,
+    OntologyEntityRecord,
+    OntologyPairRecord,
+)
 
 
 # Provenance lists promoted to top-level (queryable, union-preserving) node/edge
@@ -425,6 +430,62 @@ def has_report_records(reports: list[CommunityReport]) -> list[dict[str, str]]:
     ]
 
 
+def ontology_entity_records(schema: GraphSchema) -> list[OntologyEntityRecord]:
+    """Build the records for upsert_entity_types.cypher, one per entity type.
+
+    Args:
+        schema: Ontology whose entity types are mirrored into the graph.
+
+    Returns:
+        Dicts with ``label``, ``description``, ``gliner_label`` and
+        ``extractable`` keys, in declaration order.
+    """
+    return [
+        {
+            "label": et.label,
+            "description": et.description,
+            "gliner_label": et.gliner_label,
+            "extractable": et.extractable,
+        }
+        for et in schema.entity_types
+    ]
+
+
+def ontology_pair_records(schema: GraphSchema) -> list[OntologyPairRecord]:
+    """Build the records for upsert_pairs.cypher, one per allowed triple.
+
+    Pairs whose head or tail is not a declared entity type are omitted because
+    their endpoint match would find no node. When several relation types share
+    a ``(type, head, tail)`` triple, the first one declared supplies the
+    properties.
+
+    Args:
+        schema: Ontology whose endpoint pairs are mirrored into the graph.
+
+    Returns:
+        Dicts with ``type``, ``head``, ``tail``, ``glirel_label`` and
+        ``extractable`` keys, sorted by ``(type, head, tail)``.
+    """
+    declared = schema.entity_type_names()
+    records: dict[tuple[str, str, str], OntologyPairRecord] = {}
+    for rt in schema.relation_types:
+        for head in rt.head_labels:
+            for tail in rt.tail_labels:
+                if head not in declared or tail not in declared:
+                    continue
+                records.setdefault(
+                    (rt.type, head, tail),
+                    {
+                        "type": rt.type,
+                        "head": head,
+                        "tail": tail,
+                        "glirel_label": rt.glirel_label,
+                        "extractable": rt.extractable,
+                    },
+                )
+    return [records[key] for key in sorted(records)]
+
+
 __all__ = [
     "to_params",
     "from_props",
@@ -439,4 +500,6 @@ __all__ = [
     "in_community_records",
     "parent_community_records",
     "has_report_records",
+    "ontology_entity_records",
+    "ontology_pair_records",
 ]

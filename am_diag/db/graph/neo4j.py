@@ -71,6 +71,7 @@ class Neo4jClient(CypherGraphStore):
 
     def __init__(self, settings: Neo4jSettings) -> None:
         """Open a driver configured for the requested database."""
+        super().__init__()
         self._driver = AsyncGraphDatabase.driver(
             settings.uri, auth=(settings.user, settings.password)
         )
@@ -158,6 +159,9 @@ class Neo4jClient(CypherGraphStore):
                 render("schema/constraints", Label=label, Constraint=f"{label}_id"), {}
             )
         for statement in load("schema/indexes").split(";"):
+            if statement.strip():
+                await self.execute_query(statement, {})
+        for statement in load("schema/ontology_constraints").split(";"):
             if statement.strip():
                 await self.execute_query(statement, {})
 

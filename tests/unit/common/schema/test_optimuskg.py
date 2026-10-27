@@ -2,10 +2,13 @@
 
 The schema is derived mechanically from the abbreviation map, the 27 structural
 edge labels, and the semantic relation values enumerated from the released data;
-these assertions pin the label set, the endpoint derivation, and the relation types.
+these assertions pin the label set, the endpoint derivation, the relation types,
+the release version, and which types text extraction is offered.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from am_diag.common.schema.optimuskg import (
     ABBREV_TO_LABEL,
@@ -137,3 +140,70 @@ class TestOptimusKGSchema:
         for rt in OPTIMUSKG_SCHEMA.relation_types:
             assert {"undirected", "sources", "indirect_sources"} <= set(rt.properties)
             assert "asserted_relations" in rt.properties
+
+    def test_version_is_the_released_optimuskg_release(self) -> None:
+        """The schema version names the Dataverse release its relations came from."""
+        assert OPTIMUSKG_SCHEMA.version == "3.2"
+
+    def test_relation_groups_one_per_released_relation_value(self) -> None:
+        """Relation groups number the 46 distinct released relation values."""
+        assert len(OPTIMUSKG_SCHEMA.relation_groups()) == 46
+
+    def test_every_relation_endpoint_is_a_declared_entity_type(self) -> None:
+        """No relation type names an endpoint label the schema does not declare."""
+        declared = {et.label for et in OPTIMUSKG_SCHEMA.entity_types}
+        endpoints = {
+            label
+            for rt in OPTIMUSKG_SCHEMA.relation_types
+            for label in (*rt.head_labels, *rt.tail_labels)
+        }
+        assert endpoints <= declared
+
+    @pytest.mark.parametrize(
+        "label",
+        ["GoBiologicalProcess", "GoCellularComponent", "GoMolecularFunction"],
+    )
+    def test_gene_ontology_entity_types_are_not_extractable(self, label: str) -> None:
+        """Gene Ontology terms come from structured data, not from text extraction."""
+        entity = next(et for et in OPTIMUSKG_SCHEMA.entity_types if et.label == label)
+        assert entity.extractable is False
+
+    @pytest.mark.parametrize("relation", ["PARENT", "IS_A"])
+    def test_hierarchy_relation_types_are_not_extractable(self, relation: str) -> None:
+        """Term-hierarchy relations are structure that extraction does not offer."""
+        matching = [rt for rt in OPTIMUSKG_SCHEMA.relation_types if rt.type == relation]
+        assert matching
+        assert all(rt.extractable is False for rt in matching)
+
+    def test_disease_and_interaction_types_stay_extractable(self) -> None:
+        """Disease entities and interaction relations remain available to extraction."""
+        disease = next(
+            et for et in OPTIMUSKG_SCHEMA.entity_types if et.label == "Disease"
+        )
+        interactions = [
+            rt for rt in OPTIMUSKG_SCHEMA.relation_types if rt.type == "INTERACTS_WITH"
+        ]
+        assert disease.extractable is True
+        assert interactions
+        assert all(rt.extractable for rt in interactions)
+
+    def test_gliner_labels_are_the_seven_non_gene_ontology_labels(self) -> None:
+        """GLiNER is offered the seven non-GO entity labels and no GO label."""
+        assert set(OPTIMUSKG_SCHEMA.gliner_labels()) == {
+            "AnatomicalStructure",
+            "Disease",
+            "Drug",
+            "Exposure",
+            "Gene",
+            "Pathway",
+            "Phenotype",
+        }
+
+    @pytest.mark.parametrize("relation", ["PARENT", "IS_A"])
+    def test_glirel_labels_exclude_hierarchy_relations(self, relation: str) -> None:
+        """GLiREL is not offered term-hierarchy relations."""
+        assert relation not in OPTIMUSKG_SCHEMA.glirel_labels()
+
+    def test_glirel_labels_include_interaction_relations(self) -> None:
+        """GLiREL is still offered ordinary relations such as INTERACTS_WITH."""
+        assert "INTERACTS_WITH" in OPTIMUSKG_SCHEMA.glirel_labels()
