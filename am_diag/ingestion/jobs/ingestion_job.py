@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -21,6 +20,7 @@ from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.job import JobItem, JobProgress, JobRecord
 from am_diag.common.data_models.knowledge_graph import KnowledgeGraph
 from am_diag.common.data_models.relation import Relation
+from am_diag.common.data_models.schema import GraphSchema
 from am_diag.common.data_models.vector_record import VectorRecord
 from am_diag.ingestion.cache import IngestionCache
 from am_diag.ingestion.graph_ingestion import finalize_graph
@@ -33,37 +33,9 @@ from am_diag.loaders.graph.base import GraphLoader
 logger = logging.getLogger(__name__)
 
 
-def _schema_version(graph_schema: Any) -> str:
+def _schema_version(graph_schema: GraphSchema) -> str:
     """Return a short stable hash of the extraction-relevant schema definitions."""
-    definition = {
-        "entities": sorted(
-            (
-                {
-                    "label": et.label,
-                    "gliner_label": et.gliner_label,
-                    "description": et.description,
-                    "key_property": et.key_property,
-                }
-                for et in graph_schema.entity_types
-            ),
-            key=lambda d: d["label"],
-        ),
-        "relations": sorted(
-            (
-                {
-                    "type": rt.type,
-                    "glirel_label": rt.glirel_label,
-                    "head_labels": sorted(rt.head_labels),
-                    "tail_labels": sorted(rt.tail_labels),
-                    "properties": sorted(rt.properties),
-                }
-                for rt in graph_schema.relation_types
-            ),
-            key=lambda d: d["type"],
-        ),
-    }
-    payload = json.dumps(definition, sort_keys=True)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    return graph_schema.fingerprint()
 
 
 def _rebind_provenance(chunk: Chunk, points: list[Entity] | list[Relation]) -> None:

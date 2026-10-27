@@ -3,7 +3,8 @@
 Drives the corpus path with an injected fake extractor and chunker against a
 real temp SQLite cache and a mocked graph/vector target. Verifies item
 lifecycle, poison-item isolation (partial + failures), resume skipping, and that
-extraction/embedding cache hits skip the extractor and embedder.
+extraction/embedding cache hits skip the extractor and embedder. The schema
+version that keys cached extraction tracks the schema definition.
 """
 
 from __future__ import annotations
@@ -21,8 +22,10 @@ from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.graph_record import GraphRecord
 from am_diag.common.data_models.job import JobConfig, JobRecord
 from am_diag.common.data_models.provenance import Provenance
+from am_diag.common.data_models.schema import EntityType, GraphSchema
 from am_diag.ingestion.cache import IngestionCache
 from am_diag.ingestion.jobs import IngestionJob
+from am_diag.ingestion.jobs.ingestion_job import _schema_version
 
 
 class _FakeCorpusSource:
@@ -348,3 +351,43 @@ class TestFinalizationResume:
 
         assert result.finalized is True
         assert finalize.await_count == 2
+
+
+def _schema(
+    *, mode: str = "open", version: str = "3.2", extractable: bool = True
+) -> GraphSchema:
+    """Build a one-type schema with the given mode, version, and extractable flag."""
+    return GraphSchema(
+        version=version,
+        mode=mode,
+        entity_types=[
+            EntityType(
+                label="Disease",
+                gliner_label="disease",
+                description="A disease.",
+                extractable=extractable,
+            ),
+        ],
+    )
+
+
+class TestSchemaVersion:
+    """Schema version that keys cached extraction results."""
+
+    def test_matches_for_identically_built_schemas(self) -> None:
+        """Two schemas with the same definition share a schema version."""
+        assert _schema_version(_schema()) == _schema_version(_schema())
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            pytest.param({"mode": "strict"}, id="mode"),
+            pytest.param({"version": "3.3"}, id="version"),
+            pytest.param({"extractable": False}, id="extractable"),
+        ],
+    )
+    def test_differs_when_mode_version_or_extractable_flag_changes(
+        self, change: dict[str, object]
+    ) -> None:
+        """A changed mode, version, or extractable flag yields a new schema version."""
+        assert _schema_version(_schema(**change)) != _schema_version(_schema())
