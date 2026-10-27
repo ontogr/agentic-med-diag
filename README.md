@@ -265,7 +265,7 @@ Graph loaders read pre-built biomedical graphs from local files and ingest them 
 
 | Source | Key | Contents |
 |--------|-----|----------|
-| OptimusKG | `optimuskg` | The released OptimusKG gold graph, read from Parquet. Pair it with `--schema optimuskg`. |
+| OptimusKG | `optimuskg` | The released OptimusKG gold graph, read from Parquet. Pair it with `--schema optimuskg`. See [OptimusKG](#optimuskg). |
 | Uberon | `uberon` | Anatomical structures and their `is_a` hierarchy. |
 | Mondo | `mondo` | Diseases and their `is_a` hierarchy. |
 | Human Phenotype Ontology | `hpo` | Phenotypes and their `is_a` hierarchy. |
@@ -279,6 +279,116 @@ Graph loaders read pre-built biomedical graphs from local files and ingest them 
 | OnSIDES | `onsides` | Adverse drug reactions. |
 | CTD | `ctd` | Environmental exposures and their disease, gene, and Gene Ontology outcomes. |
 | PPI | `ppi` | Protein-protein interactions from PrimeKG. |
+
+## OptimusKG
+
+[OptimusKG](https://github.com/mims-harvard/OptimusKG) is a published biomedical knowledge graph that integrates many curated sources into one typed graph. This repository can ingest a released copy of it as a ready-made graph, and it ships the matching ontology as the `optimuskg` schema. The two parts work together but are separate. The loader brings the data in, and the schema fixes which entity and relation types a graph accepts.
+
+### The data
+
+The loader reads the gold layer of an OptimusKG release from Harvard Dataverse (DOI `10.7910/DVN/IYNGEV`) as Apache Parquet. The bundled schema was built from release 3.2, and the release identifier is `3.2`. You download the files yourself. The repository does not download them and does not depend on the `optimuskg` client package. You can get the files from the Dataverse record or with the `optimuskg` package from PyPI.
+
+The loader accepts any of three layouts in the directory you give it:
+
+| Layout | Files | Notes |
+|--------|-------|-------|
+| Per-type files | `nodes/*.parquet` and `edges/*.parquet` | Properties are native Parquet structs. |
+| Consolidated files | `nodes.parquet` and `edges.parquet` | Properties are JSON strings. |
+| Largest connected component | `largest_connected_component_nodes.parquet` and `largest_connected_component_edges.parquet` | Smaller graph. Both files must be present. |
+
+The loader uses the per-type layout when a `nodes/` directory exists, and otherwise the consolidated files. It reads the largest connected component only when you ask for it. The `am-diag` command cannot ask for it. Use the Python loader (see [Use from Python](#use-from-python)).
+
+### The schema
+
+The `optimuskg` schema has 10 entity types and 67 relation type definitions, where a definition is a relation type together with the pair of entity types it connects. The data uses 46 distinct relation names.
+
+| OptimusKG code | Entity type | Meaning |
+|----------------|-------------|---------|
+| `ANA` | `AnatomicalStructure` | Anatomical structure or tissue (Uberon) |
+| `BPO` | `GoBiologicalProcess` | Gene Ontology biological process |
+| `CCO` | `GoCellularComponent` | Gene Ontology cellular component |
+| `DIS` | `Disease` | Disease or disorder (Mondo, UMLS) |
+| `DRG` | `Drug` | Drug or chemical compound (ChEMBL, DrugBank) |
+| `EXP` | `Exposure` | Environmental exposure (CTD) |
+| `GEN` | `Gene` | Human gene or locus (Ensembl, HGNC) |
+| `MFN` | `GoMolecularFunction` | Gene Ontology molecular function |
+| `PHE` | `Phenotype` | Phenotypic feature (HPO) |
+| `PWY` | `Pathway` | Biological pathway (Reactome) |
+
+OptimusKG describes each edge in two ways. The structural label names the two entity types, for example `DRG-DIS`, and the 27 structural labels cover pairs such as `DIS-GEN`, `DRG-GEN`, `ANA-GEN`, `PWY-PWY`, and `GEN-GEN`. The semantic relation says what the edge means, for example `INDICATION`. This repository stores the semantic relation as the relation `type` and keeps the structural label as a property. Some pairs allow several relations:
+
+| Structural label | Semantic relations |
+|------------------|--------------------|
+| `DRG-DIS` | `INDICATION`, `CONTRAINDICATION`, `OFF_LABEL_USE` |
+| `DRG-PHE` | `INDICATION`, `CONTRAINDICATION`, `OFF_LABEL_USE`, `ADVERSE_DRUG_REACTION`, `ASSOCIATED_WITH` |
+| `DRG-GEN` | 33 drug action and role values, such as `INHIBITOR`, `AGONIST`, `ANTAGONIST`, `TARGET`, `ENZYME`, `TRANSPORTER`, and `CARRIER` |
+| `ANA-GEN` | `EXPRESSION_PRESENT`, `EXPRESSION_ABSENT` |
+| `DIS-GEN`, `PHE-GEN` | `ASSOCIATED_WITH` |
+| `DIS-PHE` | `PHENOTYPE_PRESENT` |
+| `EXP-DIS` | `LINKED_TO` |
+| Hierarchies (`ANA-ANA`, `DIS-DIS`, `PHE-PHE`, `PWY-PWY`, `EXP-EXP`, `DRG-DRG`) | `PARENT` |
+| Gene Ontology hierarchies (`BPO-BPO`, `CCO-CCO`, `MFN-MFN`) | `IS_A` |
+
+Every relation can carry the properties `undirected`, `sources`, `indirect_sources`, `asserted_relations`, and `structural_label`. Entities are identified by their OptimusKG id, which becomes the `curie`.
+
+Two parts of the schema are not offered to the text extractors. These are the Gene Ontology entity types and the `PARENT` and `IS_A` hierarchy relations. They describe structure that the ontology supplies, not facts that text states. When you ingest corpus text into an `optimuskg` graph, extraction cannot create them.
+
+### How the loader maps the data
+
+- Each node `id` becomes the entity `curie`, and the OptimusKG label code becomes the entity type in the table above. A node without a `name` uses its id as the name.
+- Each edge `relation` becomes the relation `type`. The edge `label` stays as the structural label.
+- `sources` lists the datasets that assert the edge directly, and `indirect_sources` lists the datasets that assert it indirectly.
+- Gene `synonyms` and `xrefs` are flattened to plain strings, and each cross-reference id is written as `source:id`.
+- The per-drug `mol_file_base64` and `mol_image_base64` structure files are not stored.
+- The graph loads as typed entities and relations without chunking or extraction, so it skips the text pipeline and joins at finalization. Finalization runs community detection only and does not write community reports.
+
+OptimusKG keeps one edge for each pair of nodes and structural label, and it records the winning relation in `type`. When sources disagree, `properties.relation_assertions` holds every statement. The loader adds a flat `asserted_relations` list with the distinct relations. A drug and a disease can be asserted as both `INDICATION` and `CONTRAINDICATION`, and `type` shows only one of them. For any safety-sensitive question, read `asserted_relations` and not `type` alone. This matters most for drug-disease and drug-phenotype edges.
+
+### Use it from the command line
+
+First create a graph that is tied to the `optimuskg` ontology, then ingest the directory that holds the Parquet files. The directory name below is an example.
+
+```bash
+uv run am-diag graphs create --graph-id okg \
+    --neo4j-uri bolt://localhost:7687 \
+    --neo4j-user-env NEO4J_USER --neo4j-password-env NEO4J_PASSWORD \
+    --vector-url-env QDRANT_URL \
+    --schema optimuskg --ontology-mode warn
+
+uv run am-diag ingest --graph okg \
+    --source loader:optimuskg:/data/optimuskg/gold \
+    --finalize
+```
+
+The loader needs no `--reference-dir`. Search, the agent, and curation then work on the graph like on any other graph. `--ontology-mode` affects only facts that text extraction produces. It has no effect on the structured data that the loader ingests.
+
+### Use from Python
+
+```python
+from am_diag import Workspace
+from am_diag.common.data_models import GraphConnection, VectorConnection
+from am_diag.common.schema import OPTIMUSKG_SCHEMA
+from am_diag.loaders.graph import OptimusKGGraphLoader
+
+async with Workspace.from_env() as client:
+    await client.graphs.create(
+        "okg",
+        neo4j=GraphConnection(uri="bolt://localhost:7687",
+                              user_env="NEO4J_USER",
+                              password_env="NEO4J_PASSWORD"),
+        vector=VectorConnection(url_env="QDRANT_URL"),
+        schema=OPTIMUSKG_SCHEMA,
+    )
+    loader = OptimusKGGraphLoader(
+        "/data/optimuskg/gold", largest_connected_component=True
+    )
+    job = await client.graph("okg").ingest(sources=[loader])
+    await job.run(finalize=True)
+```
+
+### Ontology version and upgrades
+
+A graph stores a copy of the ontology and its release identifier when you create it. If you later register a different ontology on the same graph, the call fails with `OntologyMismatchError`. To use a newer OptimusKG release, create a new graph and ingest the new files into it. To support a release that adds relation values, update `SEMANTIC_RELATIONS` and `OPTIMUSKG_RELEASE` in `am_diag/common/schema/optimuskg.py`, and then build a new graph.
 
 ## Installation
 
