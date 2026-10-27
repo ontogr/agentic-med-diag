@@ -21,7 +21,12 @@ async def _call_llm(text: str, source: str, schema: GraphSchema) -> object:
     from am_diag.llm.baml_client import b  # noqa: PLC0415
 
     tb = build_schema_typebuilder(schema)
-    return await b.ExtractKnowledgeGraph(text, source, baml_options={"tb": tb})
+    return await b.ExtractKnowledgeGraph(
+        text,
+        source,
+        schema.relation_guide(),
+        baml_options={"tb": tb},
+    )
 
 
 def _entity_type_str(entity_type: object) -> str:

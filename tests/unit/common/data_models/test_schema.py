@@ -745,6 +745,28 @@ class TestGraphSchema:
             " - The drug treats the disease."
         )
 
+    def test_relation_prompt_block_does_not_repeat_matching_descriptions(self) -> None:
+        """A relation meaning shared by both fields appears only once."""
+        schema = GraphSchema(
+            entity_types=[
+                _entity("Drug", "drug", "A drug."),
+                _entity("Disease", "disease", "A disease."),
+            ],
+            relation_types=[
+                _relation(
+                    "INDICATION",
+                    "drug is indicated for disease",
+                    ["Drug"],
+                    ["Disease"],
+                    description="drug is indicated for disease",
+                ),
+            ],
+        )
+
+        assert schema.relation_prompt_block() == (
+            "- INDICATION [Drug → Disease]: drug is indicated for disease"
+        )
+
     def test_relation_prompt_block_keeps_relation_type_without_glirel_label(
         self,
     ) -> None:

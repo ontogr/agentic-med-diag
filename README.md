@@ -133,7 +133,7 @@ Corpus ingestion streams documents, chunks them, and runs a LangGraph pipeline o
 1. **Extract:** Each chunk is processed by up to three extractors that share the injected schema:
    - **GLiNER** runs batch zero-shot NER, steered by each entity type's natural-language label.
    - **GLiREL** runs zero-shot relation extraction over GLiNER's entity spans, so GLiREL requires GLiNER.
-   - **LLM** runs a BAML extraction function with the valid entity and relation types injected as dynamic enums, constraining the model to the schema. Chunks are processed concurrently with bounded concurrency and isolated retries.
+   - **LLM** runs a BAML extraction function with dynamic entity and relation enums plus the allowed head-tail type pairs, constraining the model to the schema. Chunks are processed concurrently with bounded concurrency and isolated retries.
 2. **Combine:** The three extractor outputs are merged per chunk using a configurable strategy: `union` (superset, merging provenance), `intersection` (only items every extractor found), `max_score` (highest-confidence version), or `gliner_primary` (GLiNER spans supplemented by the LLM).
 3. **Normalize:** Within a chunk, entities are deduplicated by `(normalized name, label)` and relations by `(normalized head, normalized tail, type)`, merging sources, surface forms, chunk ids, scores, and properties. Low-confidence and too-short entities are filtered.
 4. **Aggregate:** A deterministic, zero-LLM set-union across all chunks collapses the same keys into one cross-chunk candidate set.

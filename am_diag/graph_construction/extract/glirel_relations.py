@@ -129,26 +129,41 @@ class GLiRELRelationExtractor(Extractor):
         if not cfg.use_glirel:
             return []
 
+        labels = schema.glirel_labels()
+        if not labels:
+            return []
+        relation_types = set(schema.glirel_to_type.values())
+        endpoint_labels = {
+            label
+            for head, relation_type, tail in schema.allowed_pairs(extractable_only=True)
+            if relation_type in relation_types
+            for label in (head, tail)
+        }
+        per_chunk_entities = [
+            [entity for entity in entities if entity.label in endpoint_labels]
+            for entities in per_chunk_entities
+        ]
+
         all_rels = await asyncio.to_thread(
             _run_glirel_sequential,
             texts,
             per_chunk_entities,
             cfg.glirel_threshold,
-            schema.glirel_labels(),
+            labels,
             self.model,
         )
 
         relations: list[Relation] = []
         for chunk, rels in zip(chunks, all_rels, strict=False):
             for r in rels:
+                relation_type = schema.glirel_to_type.get(r.get("label", ""))
+                if relation_type is None:
+                    continue
                 relations.append(
                     Relation(
                         head_name=" ".join(r["head_text"]),
                         tail_name=" ".join(r["tail_text"]),
-                        type=schema.glirel_to_type.get(
-                            r.get("label", ""),
-                            r.get("label", ""),
-                        ),
+                        type=relation_type,
                         score=float(r.get("score", 1.0)),
                         provenance=Provenance(
                             extractor=ExtractorName.GLIREL,

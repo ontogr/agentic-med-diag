@@ -188,22 +188,49 @@ class TestOptimusKGSchema:
         assert all(rt.extractable for rt in interactions)
 
     def test_gliner_labels_are_the_seven_non_gene_ontology_labels(self) -> None:
-        """GLiNER is offered the seven non-GO entity labels and no GO label."""
+        """GLiNER receives descriptive labels for the seven extractable types."""
         assert set(OPTIMUSKG_SCHEMA.gliner_labels()) == {
-            "AnatomicalStructure",
-            "Disease",
-            "Drug",
-            "Exposure",
-            "Gene",
-            "Pathway",
-            "Phenotype",
+            "anatomical structure, organ, tissue, or body part",
+            "disease, disorder, syndrome, condition, or neoplasm",
+            "drug, medication, or pharmaceutical agent",
+            "environmental exposure, toxin, or chemical exposure",
+            "gene, gene product, or protein",
+            "symptom, clinical sign, or phenotypic abnormality",
+            "biochemical or signaling pathway",
         }
+
+    def test_entity_text_labels_are_unique(self) -> None:
+        """Every OptimusKG entity type has a distinct text-extraction label."""
+        labels = [entity.gliner_label for entity in OPTIMUSKG_SCHEMA.entity_types]
+        assert len(labels) == 10
+        assert len(labels) == len(set(labels))
 
     @pytest.mark.parametrize("relation", ["PARENT", "IS_A"])
     def test_glirel_labels_exclude_hierarchy_relations(self, relation: str) -> None:
         """GLiREL is not offered term-hierarchy relations."""
-        assert relation not in OPTIMUSKG_SCHEMA.glirel_labels()
+        assert relation not in OPTIMUSKG_SCHEMA.glirel_to_type.values()
 
     def test_glirel_labels_include_interaction_relations(self) -> None:
-        """GLiREL is still offered ordinary relations such as INTERACTS_WITH."""
-        assert "INTERACTS_WITH" in OPTIMUSKG_SCHEMA.glirel_labels()
+        """GLiREL receives described relations but not fine drug-gene types."""
+        labels = OPTIMUSKG_SCHEMA.glirel_labels()
+        assert (
+            "two genes or gene products interact, or a pathway involves a gene"
+            in labels
+        )
+        assert len(labels) == len(set(labels))
+        assert "INHIBITOR" not in OPTIMUSKG_SCHEMA.glirel_to_type.values()
+
+    def test_relation_guide_groups_allowed_endpoint_pairs(self) -> None:
+        """Prompt guidance groups pairs and excludes non-extractable types."""
+        guide = OPTIMUSKG_SCHEMA.relation_guide()
+
+        assert (
+            "- PHENOTYPE_PRESENT [Disease -> Phenotype]: "
+            "disease presents with a phenotype (symptom or sign)"
+        ) in guide
+        assert (
+            "- INDICATION [Drug -> Disease, Drug -> Phenotype]: "
+            "drug is indicated for (approved to treat) a disease or phenotype"
+        ) in guide
+        assert "PARENT" not in guide
+        assert "IS_A" not in guide
