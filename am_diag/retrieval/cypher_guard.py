@@ -7,9 +7,9 @@ checks catch mistakes earlier and give the model a precise error to retry with.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 
 from am_diag.common.data_models.schema import GraphSchema
+from am_diag.common.data_models.search import GuardedCypher
 
 
 _STRING_LITERAL = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"")
@@ -47,19 +47,6 @@ _STRUCTURAL_RELATIONSHIPS = frozenset(
         "HAS_REPORT",
     }
 )
-
-
-@dataclass(frozen=True)
-class GuardedCypher:
-    """Generated Cypher after checking.
-
-    Attributes:
-        cypher: The query, with a ``LIMIT`` added or lowered when needed.
-        errors: Problems the model should fix. Empty when the query may run.
-    """
-
-    cypher: str
-    errors: list[str]
 
 
 def guard_cypher(
@@ -132,7 +119,9 @@ def guard_cypher(
             "match a fixed-length pattern instead."
         )
 
-    return GuardedCypher(_ensure_limit(cypher, default_limit, max_limit), errors)
+    return GuardedCypher(
+        cypher=_ensure_limit(cypher, default_limit, max_limit), errors=errors
+    )
 
 
 def _ensure_limit(cypher: str, default_limit: int, max_limit: int) -> str:
@@ -145,4 +134,4 @@ def _ensure_limit(cypher: str, default_limit: int, max_limit: int) -> str:
     )
 
 
-__all__ = ["GuardedCypher", "guard_cypher"]
+__all__ = ["guard_cypher"]

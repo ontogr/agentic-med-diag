@@ -60,6 +60,7 @@ _READ_CASES = {
             "head_id",
             "head_name",
             "first_type",
+            "via_id",
             "via_name",
             "second_type",
             "tail_id",

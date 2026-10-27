@@ -7,7 +7,6 @@ methods found and look for more evidence around them.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from uuid import UUID
 
 from am_diag.common.data_models.chunk import Chunk
@@ -17,24 +16,11 @@ from am_diag.common.data_models.search import CypherRow, Fact, SearchResult, See
 from am_diag.retrieval.filters import SearchFilters
 
 
-@dataclass(frozen=True)
-class ExpansionContext:
-    """Everything an expander may use for one search.
-
-    Attributes:
-        query: The natural-language query.
-        seeds: Entity and chunk ids found by the recipe's methods.
-        filters: Optional metadata filters.
-        query_vector: The query embedding, set only when the recipe needs it.
-    """
-
-    query: str
-    seeds: Seeds
-    filters: SearchFilters | None = None
-    query_vector: list[float] | None = None
-
-
-Expander = Callable[[ExpansionContext], Awaitable[list[SearchResult]]]
+Expander = Callable[
+    [str, Seeds, SearchFilters | None, list[float] | None],
+    Awaitable[list[SearchResult]],
+]
+"""An expander takes the query, seeds, filters and query vector (or None)."""
 
 
 def entity_label(labels: list[str] | None) -> str:
@@ -99,7 +85,6 @@ def collect_seeds(results: list[SearchResult], limit: int = 15) -> Seeds:
 
 __all__ = [
     "Expander",
-    "ExpansionContext",
     "collect_seeds",
     "entity_label",
 ]

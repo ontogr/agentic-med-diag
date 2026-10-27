@@ -58,10 +58,11 @@ async def expand_relations(
         read_only=True,
     )
 
-    facts: dict[tuple[str, str, str], Fact] = {}
+    facts: dict[tuple[str, str, str, str | None], Fact] = {}
     for row in rows:
         fact = _row_to_fact(row, hops)
-        facts.setdefault((fact.head_id, fact.type, fact.tail_id), fact)
+        key = (fact.head_id, fact.type, fact.tail_id, fact.via_id)
+        facts.setdefault(key, fact)
 
     source = f"relations_{hops}hop"
     return [
@@ -102,6 +103,7 @@ def _row_to_fact(row: dict[str, Any], hops: int) -> Fact:
             tail_name=row["tail_name"] or "",
             hops=2,
             via_name=row["via_name"] or "",
+            via_id=str(row["via_id"]),
         )
     return Fact(
         head_id=str(row["head_id"]),

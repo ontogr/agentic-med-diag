@@ -5,43 +5,15 @@ from __future__ import annotations
 import statistics
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 
+from am_diag.common.data_models.evaluation import (
+    QuestionResult,
+    RecipeSummary,
+    RetrievalQuestion,
+)
 from am_diag.common.data_models.search import SearchResult
 from am_diag.retrieval.config import SearchConfig
 from am_diag.retrieval.search import SearchEngine
-
-
-@dataclass(frozen=True)
-class RetrievalQuestion:
-    """A question with the ids of the items that answer it."""
-
-    question_id: str
-    text: str
-    gold_ids: frozenset[str]
-
-
-@dataclass(frozen=True)
-class QuestionResult:
-    """Outcome of one recipe run on one question."""
-
-    recipe: str
-    question_id: str
-    repeat: int
-    hit_at_k: bool
-    reciprocal_rank: float
-    latency_ms: float
-
-
-@dataclass(frozen=True)
-class RecipeSummary:
-    """Scores for one recipe, averaged over its questions and repeats."""
-
-    recipe: str
-    recall_at_k: float
-    mean_reciprocal_rank: float
-    latency_p50_ms: float
-    latency_p95_ms: float
 
 
 def first_gold_rank(results: Sequence[SearchResult], gold_ids: frozenset[str]) -> int:
@@ -134,9 +106,6 @@ async def run_ablation(
 
 
 __all__ = [
-    "QuestionResult",
-    "RecipeSummary",
-    "RetrievalQuestion",
     "first_gold_rank",
     "hit_at_k",
     "percentile",

@@ -32,7 +32,7 @@ class Fact(BaseModel):
     Edges extracted from text carry a ``description`` and ``chunk_ids``. Edges
     loaded from a structured source have no sentence, so they carry the source
     ``structural_label`` and ``sources`` instead. For a two-edge path, ``type`` is
-    ``"FIRST>SECOND"`` and ``via_name`` names the middle entity.
+    ``"FIRST>SECOND"`` and ``via_name`` and ``via_id`` identify the middle entity.
     """
 
     head_id: str
@@ -46,6 +46,7 @@ class Fact(BaseModel):
     chunk_ids: list[str] = Field(default_factory=list)
     hops: int = 1
     via_name: str | None = None
+    via_id: str | None = None
 
     def text(self) -> str:
         """Render the fact as one line the model can read."""
@@ -65,6 +66,34 @@ class Fact(BaseModel):
     def __str__(self) -> str:
         """Render the fact with :meth:`text`."""
         return self.text()
+
+
+class Keywords(BaseModel):
+    """Search keywords for one question.
+
+    Attributes:
+        llm: Clinical entity names and terms from the model, best first.
+        simple: Content words from the question, in question order.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    llm: list[str] = Field(default_factory=list)
+    simple: list[str] = Field(default_factory=list)
+
+
+class GuardedCypher(BaseModel):
+    """Generated Cypher after checking.
+
+    Attributes:
+        cypher: The query, with a ``LIMIT`` added or lowered when needed.
+        errors: Problems the model should fix. Empty when the query may run.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    cypher: str
+    errors: list[str]
 
 
 class Seeds(BaseModel):

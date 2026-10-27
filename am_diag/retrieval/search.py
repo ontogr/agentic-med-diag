@@ -11,12 +11,16 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 
 from am_diag.common.data_models.chunk import Chunk
 from am_diag.common.data_models.relation import Relation
 from am_diag.common.data_models.schema import GraphSchema
-from am_diag.common.data_models.search import CypherRow, SearchResult
+from am_diag.common.data_models.search import (
+    CypherRow,
+    Keywords,
+    SearchResult,
+    Seeds,
+)
 from am_diag.db.graph.base import GraphStore
 from am_diag.db.vector.base import VectorStoreBase
 from am_diag.retrieval import recipes
@@ -24,7 +28,6 @@ from am_diag.retrieval.config import RetrievalConfig, SearchConfig
 from am_diag.retrieval.filters import SearchFilters
 from am_diag.retrieval.methods.base import (
     Expander,
-    ExpansionContext,
     collect_seeds,
 )
 from am_diag.retrieval.methods.chunk_expand import chunks_mentioning, chunks_two_hop
@@ -32,7 +35,7 @@ from am_diag.retrieval.methods.chunk_keywords import chunk_keyword_search
 from am_diag.retrieval.methods.chunk_vectors import fetch_chunk_vectors
 from am_diag.retrieval.methods.document_names import attach_document_names
 from am_diag.retrieval.methods.entity_lookup import entity_lookup
-from am_diag.retrieval.methods.keywords import Keywords, extract_keywords
+from am_diag.retrieval.methods.keywords import extract_keywords
 from am_diag.retrieval.methods.local_context import local_context
 from am_diag.retrieval.methods.relation_expand import (
     expand_relations,
@@ -55,17 +58,10 @@ from am_diag.vector.reranking.base import Reranker
 _KEYWORD_METHODS = frozenset({"entity_lookup", "chunk_keywords"})
 
 
-@dataclass(frozen=True)
-class _MethodRequest:
-    """Inputs shared by every method in one search."""
-
-    query: str
-    recipe: SearchConfig
-    filters: SearchFilters | None
-    keywords: Keywords | None
-
-
-Method = Callable[[_MethodRequest], Awaitable[list[SearchResult]]]
+Method = Callable[
+    [str, SearchConfig, SearchFilters | None, Keywords | None],
+    Awaitable[list[SearchResult]],
+]
 
 
 class SearchEngine:
@@ -117,10 +113,10 @@ class SearchEngine:
         )
 
         self._methods: dict[str, Method] = {
-            "entity": lambda req: self._retrieve(self._entity, req),
+            "entity": lambda q, r, f, _: self._retrieve(self._entity, q, r, f),
             "relation": self._relation_method,
-            "chunk": lambda req: self._retrieve(self._chunk, req),
-            "community": lambda req: self._retrieve(self._community, req),
+            "chunk": lambda q, r, f, _: self._retrieve(self._chunk, q, r, f),
+            "community": lambda q, r, f, _: self._retrieve(self._community, q, r, f),
             "text2cypher": self._text2cypher_method,
             "entity_lookup": self._entity_lookup_method,
             "chunk_keywords": self._chunk_keywords_method,
@@ -164,9 +160,11 @@ class SearchEngine:
             if _KEYWORD_METHODS.intersection(recipe.methods)
             else None
         )
-        request = _MethodRequest(query, recipe, filters, keywords)
         method_lists = await asyncio.gather(
-            *(self._methods[name](request) for name in recipe.methods),
+            *(
+                self._methods[name](query, recipe, filters, keywords)
+                for name in recipe.methods
+            ),
         )
         cypher_rows, vector_lists = _split_cypher(method_lists)
 
@@ -177,17 +175,15 @@ class SearchEngine:
         )
         expansions: list[list[SearchResult]] = []
         if recipe.expanders:
-            context = ExpansionContext(
-                query=query,
-                seeds=collect_seeds(
-                    [*cypher_rows, *(r for lst in vector_lists for r in lst)]
-                ),
-                filters=filters,
-                query_vector=query_vector,
+            seeds = collect_seeds(
+                [*cypher_rows, *(r for lst in vector_lists for r in lst)]
             )
             expansions = list(
                 await asyncio.gather(
-                    *(self._expanders[name](context) for name in recipe.expanders),
+                    *(
+                        self._expanders[name](query, seeds, filters, query_vector)
+                        for name in recipe.expanders
+                    ),
                 ),
             )
 
@@ -201,20 +197,28 @@ class SearchEngine:
     async def _retrieve(
         self,
         retriever: HybridRetriever,
-        request: _MethodRequest,
+        query: str,
+        recipe: SearchConfig,
+        filters: SearchFilters | None,
     ) -> list[SearchResult]:
         """Run one hybrid retriever with the recipe's BFS flags."""
         return await retriever.retrieve(
-            request.query,
-            filters=request.filters,
-            bfs=request.recipe.bfs,
-            bfs_depth=request.recipe.bfs_depth,
+            query,
+            filters=filters,
+            bfs=recipe.bfs,
+            bfs_depth=recipe.bfs_depth,
         )
 
-    async def _relation_method(self, request: _MethodRequest) -> list[SearchResult]:
+    async def _relation_method(
+        self,
+        query: str,
+        recipe: SearchConfig,
+        filters: SearchFilters | None,
+        keywords: Keywords | None,
+    ) -> list[SearchResult]:
         """Search relations, as facts when the recipe asks for them."""
-        results = await self._retrieve(self._relation, request)
-        if not request.recipe.facts:
+        results = await self._retrieve(self._relation, query, recipe, filters)
+        if not recipe.facts:
             return results
 
         facts = [
@@ -236,42 +240,56 @@ class SearchEngine:
         )
         return [*kept, *others]
 
-    async def _text2cypher_method(self, request: _MethodRequest) -> list[SearchResult]:
+    async def _text2cypher_method(
+        self,
+        query: str,
+        recipe: SearchConfig,
+        filters: SearchFilters | None,
+        keywords: Keywords | None,
+    ) -> list[SearchResult]:
         """Run text-to-Cypher, or nothing when no schema was given."""
         if self._text2cypher is None:
             return []
-        return await self._text2cypher.retrieve(request.query, filters=request.filters)
+        return await self._text2cypher.retrieve(query, filters=filters)
 
     async def _entity_lookup_method(
-        self, request: _MethodRequest
+        self,
+        query: str,
+        recipe: SearchConfig,
+        filters: SearchFilters | None,
+        keywords: Keywords | None,
     ) -> list[SearchResult]:
         """Look entities up by the question's keywords."""
-        if request.keywords is None:
+        if keywords is None:
             return []
         return await entity_lookup(
             self._graph,
-            request.keywords.llm[: self._config.lookup_keywords],
+            keywords.llm[: self._config.lookup_keywords],
             exact_per_keyword=self._config.exact_per_keyword,
             contains_per_keyword=self._config.contains_per_keyword,
-            filters=request.filters,
+            filters=filters,
         )
 
     async def _chunk_keywords_method(
-        self, request: _MethodRequest
+        self,
+        query: str,
+        recipe: SearchConfig,
+        filters: SearchFilters | None,
+        keywords: Keywords | None,
     ) -> list[SearchResult]:
         """Search chunks once per keyword."""
-        if request.keywords is None:
+        if keywords is None:
             return []
         return await chunk_keyword_search(
             self._vector_store,
             self._config.chunk_collection,
             self._embedder,
-            request.query,
-            request.keywords,
+            query,
+            keywords,
             keyword_queries=self._config.chunk_keyword_queries,
             simple_queries=self._config.chunk_simple_queries,
             top_k=self._config.chunk_keyword_top_k,
-            filters=request.filters,
+            filters=filters,
         )
 
     # -- expanders ----------------------------------------------------
@@ -281,73 +299,109 @@ class SearchEngine:
             return list(self._config.hierarchy_edge_types)
         return []
 
-    async def _relations_1hop(self, context: ExpansionContext) -> list[SearchResult]:
+    async def _relations_1hop(
+        self,
+        query: str,
+        seeds: Seeds,
+        filters: SearchFilters | None,
+        query_vector: list[float] | None,
+    ) -> list[SearchResult]:
         """Expand seed entities by one hop."""
         return await expand_relations(
             self._graph,
-            context.seeds.entity_ids[: self._config.hop1_seeds],
+            seeds.entity_ids[: self._config.hop1_seeds],
             hops=1,
             per_seed=self._config.hop1_per_seed,
             total_limit=self._config.hop1_limit,
             exclude_types=self._excluded_relation_types(),
-            filters=context.filters,
+            filters=filters,
         )
 
-    async def _relations_2hop(self, context: ExpansionContext) -> list[SearchResult]:
+    async def _relations_2hop(
+        self,
+        query: str,
+        seeds: Seeds,
+        filters: SearchFilters | None,
+        query_vector: list[float] | None,
+    ) -> list[SearchResult]:
         """Expand seed entities by two hops."""
         return await expand_relations(
             self._graph,
-            context.seeds.entity_ids[: self._config.hop2_seeds],
+            seeds.entity_ids[: self._config.hop2_seeds],
             hops=2,
             per_seed=self._config.hop2_per_seed,
             total_limit=self._config.hop2_limit,
             exclude_types=self._excluded_relation_types(),
-            filters=context.filters,
+            filters=filters,
         )
 
-    async def _chunks_mentions(self, context: ExpansionContext) -> list[SearchResult]:
+    async def _chunks_mentions(
+        self,
+        query: str,
+        seeds: Seeds,
+        filters: SearchFilters | None,
+        query_vector: list[float] | None,
+    ) -> list[SearchResult]:
         """Find chunks that mention the seed entities."""
-        if context.query_vector is None:
+        if query_vector is None:
             return []
         return await chunks_mentioning(
             self._graph,
             self._vector_store,
             self._config.chunk_collection,
-            context.seeds.entity_ids[: self._config.mentions_seeds],
-            context.query_vector,
+            seeds.entity_ids[: self._config.mentions_seeds],
+            query_vector,
             per_entity=self._config.mentions_per_entity,
-            filters=context.filters,
+            filters=filters,
         )
 
-    async def _chunks_two_hop(self, context: ExpansionContext) -> list[SearchResult]:
+    async def _chunks_two_hop(
+        self,
+        query: str,
+        seeds: Seeds,
+        filters: SearchFilters | None,
+        query_vector: list[float] | None,
+    ) -> list[SearchResult]:
         """Find chunks that mention neighbours of the seed entities."""
         return await chunks_two_hop(
             self._graph,
             self._vector_store,
             self._config.chunk_collection,
-            context.seeds.entity_ids[: self._config.two_hop_chunk_seeds],
+            seeds.entity_ids[: self._config.two_hop_chunk_seeds],
             limit=self._config.two_hop_chunk_limit,
-            filters=context.filters,
+            filters=filters,
         )
 
-    async def _siblings(self, context: ExpansionContext) -> list[SearchResult]:
+    async def _siblings(
+        self,
+        query: str,
+        seeds: Seeds,
+        filters: SearchFilters | None,
+        query_vector: list[float] | None,
+    ) -> list[SearchResult]:
         """Find siblings of the seed entities when the question asks for a list."""
-        if not is_enumeration_query(context.query):
+        if not is_enumeration_query(query):
             return []
         return await sibling_entities(
             self._graph,
-            context.seeds.entity_ids,
+            seeds.entity_ids,
             max_siblings=self._config.max_siblings,
-            filters=context.filters,
+            filters=filters,
         )
 
-    async def _local_context(self, context: ExpansionContext) -> list[SearchResult]:
+    async def _local_context(
+        self,
+        query: str,
+        seeds: Seeds,
+        filters: SearchFilters | None,
+        query_vector: list[float] | None,
+    ) -> list[SearchResult]:
         """Add the entities and neighbouring chunks around matched chunks."""
         return await local_context(
             self._graph,
             self._vector_store,
             self._config.chunk_collection,
-            context.seeds.chunk_ids[: self._config.local_context_chunks],
+            seeds.chunk_ids[: self._config.local_context_chunks],
         )
 
     # -- fusion -------------------------------------------------------

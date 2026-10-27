@@ -80,6 +80,7 @@ class TestExpandRelations:
             "head_id": "a",
             "head_name": "Metformin",
             "first_type": "INDICATION",
+            "via_id": "m",
             "via_name": "Type 2 diabetes",
             "second_type": "PHENOTYPE_PRESENT",
             "tail_id": "p",

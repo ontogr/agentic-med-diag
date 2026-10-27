@@ -114,3 +114,21 @@ class TestRRFIdentity:
         )
 
         assert len(fused) == 2
+
+    def test_two_hop_facts_with_different_middles_stay_separate(self) -> None:
+        """Paths that differ only in the entity between the ends are two items."""
+
+        def path(via_id: str) -> SearchResult:
+            fact = Fact(
+                head_id="a",
+                head_name="a",
+                type="T1>T2",
+                tail_id="b",
+                tail_name="b",
+                hops=2,
+                via_id=via_id,
+                via_name=via_id,
+            )
+            return SearchResult(item=fact, score=0.5, source="relations_2hop")
+
+        assert len(rrf([[path("m1"), path("m2")]])) == 2

@@ -20,7 +20,7 @@ def item_key(item: object) -> tuple:
     if isinstance(item, CypherRow):
         return ("cypher", tuple(sorted((k, str(v)) for k, v in item.values.items())))
     if isinstance(item, Fact):
-        return ("fact", item.head_id, item.type, item.tail_id)
+        return ("fact", item.head_id, item.type, item.tail_id, item.via_id)
     item_id = getattr(item, "id", None)
     if item_id is None:
         return (type(item).__name__, id(item))

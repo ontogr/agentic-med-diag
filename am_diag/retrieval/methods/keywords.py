@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
 
 from baml_py.errors import BamlError
 
 from am_diag.common.data_models.schema import GraphSchema
+from am_diag.common.data_models.search import Keywords
 
 
 logger = logging.getLogger(__name__)
@@ -25,19 +25,6 @@ _QUESTION_WORDS = frozenset(
 )  # fmt: skip
 _WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-']*")
 _SIMPLE_LIMIT = 12
-
-
-@dataclass(frozen=True)
-class Keywords:
-    """Search keywords for one question.
-
-    Attributes:
-        llm: Clinical entity names and terms from the model, best first.
-        simple: Content words from the question, in question order.
-    """
-
-    llm: list[str] = field(default_factory=list)
-    simple: list[str] = field(default_factory=list)
 
 
 def _is_content_word(word: str) -> bool:
@@ -99,4 +86,4 @@ async def extract_keywords(
     return Keywords(llm=llm, simple=simple_keywords(question))
 
 
-__all__ = ["Keywords", "extract_keywords", "simple_keywords"]
+__all__ = ["extract_keywords", "simple_keywords"]

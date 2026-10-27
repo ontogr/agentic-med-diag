@@ -5,10 +5,10 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+from am_diag.common.data_models.search import Keywords
 from am_diag.common.data_models.vector_record import VectorHit
 from am_diag.db.vector.base import VectorStoreBase
 from am_diag.retrieval.methods.chunk_keywords import chunk_keyword_search
-from am_diag.retrieval.methods.keywords import Keywords
 from am_diag.vector.embedding.base import Embedder
 
 

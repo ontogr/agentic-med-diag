@@ -13,5 +13,5 @@ CALL {
   LIMIT $per_seed
 }
 RETURN a.id AS head_id, a.name AS head_name, r1.type AS first_type,
-       m.name AS via_name, r2.type AS second_type,
+       m.id AS via_id, m.name AS via_name, r2.type AS second_type,
        c.id AS tail_id, c.name AS tail_name

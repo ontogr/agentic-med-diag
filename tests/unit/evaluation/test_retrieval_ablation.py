@@ -8,10 +8,9 @@ from uuid import UUID, uuid4
 import pytest
 
 from am_diag.common.data_models.entity import Entity
+from am_diag.common.data_models.evaluation import QuestionResult, RetrievalQuestion
 from am_diag.common.data_models.search import SearchResult
 from am_diag.evaluation.retrieval_ablation import (
-    QuestionResult,
-    RetrievalQuestion,
     first_gold_rank,
     hit_at_k,
     percentile,

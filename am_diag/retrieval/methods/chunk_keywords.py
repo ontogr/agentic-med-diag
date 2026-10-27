@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from am_diag.common.data_models.search import SearchResult
+from am_diag.common.data_models.search import Keywords, SearchResult
 from am_diag.db.vector.base import VectorStoreBase
 from am_diag.retrieval.filters import SearchFilters
 from am_diag.retrieval.methods.hybrid import hybrid_search
-from am_diag.retrieval.methods.keywords import Keywords
 from am_diag.retrieval.retrievers.chunk import chunk_from_payload
 from am_diag.vector.embedding.base import Embedder
 
