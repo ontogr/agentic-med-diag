@@ -11,10 +11,12 @@ from am_diag.common.data_models.chunk import Chunk
 from am_diag.common.data_models.community_report import CommunityReport
 from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.relation import Relation
-from am_diag.common.data_models.search import CypherRow, SearchResult
+from am_diag.common.data_models.search import CypherRow, Fact, SearchResult
 
 
-def _render_item(item: Entity | Relation | Chunk | CommunityReport | CypherRow) -> str:
+def _render_item(
+    item: Entity | Relation | Chunk | CommunityReport | CypherRow | Fact,
+) -> str:
     """Render one fused item as a single context line."""
     if isinstance(item, Entity):
         desc = f": {item.description}" if item.description else ""
@@ -24,7 +26,7 @@ def _render_item(item: Entity | Relation | Chunk | CommunityReport | CypherRow) 
         return f"{item.head_name} {item.type} {item.tail_name}{desc}"
     if isinstance(item, Chunk):
         return item.text
-    if isinstance(item, CypherRow):
+    if isinstance(item, (CypherRow, Fact)):
         return str(item)
     title = f"{item.title}: " if item.title else ""
     return f"{title}{item.summary}"
@@ -64,7 +66,9 @@ def pack_context(results: list[SearchResult], max_characters: int = 2500) -> str
         CypherRow: [],
     }
     for result in results:
-        bucket = sections.get(type(result.item))
+        # Facts share the Facts section with stored relations.
+        kind = Relation if isinstance(result.item, Fact) else type(result.item)
+        bucket = sections.get(kind)
         if bucket is not None:
             bucket.append(_render_item(result.item))
 

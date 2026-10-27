@@ -7,7 +7,24 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from am_diag.common.data_models.search import SearchResult
+from am_diag.common.data_models.search import CypherRow, Fact, SearchResult
+
+
+def item_key(item: object) -> tuple:
+    """Return a stable identity key for a result item.
+
+    Two objects that describe the same graph element get the same key, so
+    results from different retrievers merge. Items without an ``id`` fall back
+    to object identity.
+    """
+    if isinstance(item, CypherRow):
+        return ("cypher", tuple(sorted((k, str(v)) for k, v in item.values.items())))
+    if isinstance(item, Fact):
+        return ("fact", item.head_id, item.type, item.tail_id)
+    item_id = getattr(item, "id", None)
+    if item_id is None:
+        return (type(item).__name__, id(item))
+    return (type(item).__name__, str(item_id))
 
 
 def rrf(
@@ -16,9 +33,9 @@ def rrf(
 ) -> list[SearchResult]:
     """Fuse multiple ranked result lists via reciprocal rank fusion.
 
-    Each result's ``item`` field is used for dedup (by object identity /
-    ``__hash__``). When the same item appears in multiple lists, its RRF score
-    is the sum of ``1 / (k + rank)``.
+    Each result's ``item`` is deduplicated by :func:`item_key`, so the same
+    entity returned by two retrievers counts once. When the same item appears in
+    multiple lists, its RRF score is the sum of ``1 / (k + rank)``.
 
     Args:
         result_lists: One or more ranked result lists.
@@ -31,12 +48,12 @@ def rrf(
     if not result_lists:
         return []
 
-    scores: dict[int, float] = defaultdict(float)
-    items: dict[int, SearchResult] = {}
+    scores: dict[tuple, float] = defaultdict(float)
+    items: dict[tuple, SearchResult] = {}
 
     for ranked in result_lists:
         for rank, result in enumerate(ranked, start=1):
-            idx = id(result.item)
+            idx = item_key(result.item)
             scores[idx] += 1.0 / (k + rank)
             if idx not in items or result.score > items[idx].score:
                 items[idx] = result
