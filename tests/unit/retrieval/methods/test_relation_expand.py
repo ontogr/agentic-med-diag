@@ -151,3 +151,36 @@ class TestExpandRelations:
             await expand_relations(
                 _graph([]), ["a"], hops=3, per_seed=1, total_limit=1, exclude_types=[]
             )
+
+    async def test_filter_property_cannot_replace_a_query_parameter(self) -> None:
+        """A filter key that matches a query parameter name leaves the query intact."""
+        graph = _graph([])
+
+        await expand_relations(
+            graph,
+            ["a"],
+            hops=1,
+            per_seed=3,
+            total_limit=10,
+            exclude_types=[],
+            filters=SearchFilters(properties={"ids": "other"}),
+        )
+
+        assert graph.execute_query.call_args.args[1]["ids"] == ["a"]
+
+    async def test_unsafe_filter_label_never_reaches_the_query(self) -> None:
+        """A label that is not a plain PascalCase name is refused."""
+        graph = _graph([])
+
+        with pytest.raises(ValueError, match="label"):
+            await expand_relations(
+                graph,
+                ["a"],
+                hops=1,
+                per_seed=3,
+                total_limit=10,
+                exclude_types=[],
+                filters=SearchFilters(labels=["Drug) OR (b"]),
+            )
+
+        graph.execute_query.assert_not_awaited()

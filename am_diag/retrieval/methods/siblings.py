@@ -50,7 +50,7 @@ async def sibling_entities(
     cypher, params = apply_node_filters(load("retrieval/siblings"), filters, "s")
     rows = await graph_store.execute_query(
         cypher,
-        {"ids": seed_ids, "max_siblings": max_siblings, **params},
+        {**params, "ids": seed_ids, "max_siblings": max_siblings},
         read_only=True,
     )
     return [

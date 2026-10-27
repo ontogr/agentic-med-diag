@@ -50,7 +50,7 @@ async def entity_lookup(
         cypher, params = apply_node_filters(load(template), filters, "e")
         rows = await graph_store.execute_query(
             cypher,
-            {"keywords": keywords, "per_keyword": per_keyword, **params},
+            {**params, "keywords": keywords, "per_keyword": per_keyword},
             read_only=True,
         )
         for rank, row in enumerate(rows):

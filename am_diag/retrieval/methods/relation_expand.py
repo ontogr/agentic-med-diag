@@ -54,7 +54,7 @@ async def expand_relations(
     cypher, params = apply_node_filters(load(name), filters, var)
     rows = await graph_store.execute_query(
         cypher,
-        {"ids": seed_ids, "per_seed": per_seed, "exclude": exclude_types, **params},
+        {**params, "ids": seed_ids, "per_seed": per_seed, "exclude": exclude_types},
         read_only=True,
     )
 
