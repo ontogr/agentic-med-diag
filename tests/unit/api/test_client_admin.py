@@ -14,7 +14,12 @@ import pytest
 
 from am_diag.api.admin import GraphAdmin
 from am_diag.api.errors import ConnectionError as WorkspaceConnectionError
-from am_diag.api.errors import GraphNotFoundError, RegistryError
+from am_diag.api.errors import (
+    GraphNotFoundError,
+    OntologyMismatchError,
+    RegistryError,
+    SchemaError,
+)
 from am_diag.api.graph import Graph
 from am_diag.api.workspace import Workspace
 from am_diag.common.data_models.connection import GraphConnection, VectorConnection
@@ -122,7 +127,7 @@ class TestGraphAdmin:
     async def test_ontology_conflict_rolls_back_and_closes_store(
         self, client, monkeypatch
     ):
-        """Verify an ontology conflict removes the record and closes the store."""
+        """Verify an ontology conflict removes the record before any schema setup."""
         _set_env(monkeypatch)
         store = MagicMock(spec=GraphStore)
         store.health_check = AsyncMock(return_value=True)
@@ -132,10 +137,12 @@ class TestGraphAdmin:
         )
         with (
             patch("am_diag.api.graph.create_graph_store", return_value=store),
-            pytest.raises(OntologyVersionMismatch),
+            pytest.raises(OntologyMismatchError) as excinfo,
         ):
             await client.graphs.create("med", neo4j=_neo4j(), vector=_vector())
+        assert isinstance(excinfo.value, SchemaError)
         assert await client.graphs.list() == []
+        store.setup_schema.assert_not_awaited()
         store.close.assert_awaited()
 
     async def test_ontology_update_conflict_keeps_record_and_live_graph(
@@ -155,7 +162,7 @@ class TestGraphAdmin:
             stored="1.0", requested="3.0"
         )
 
-        with pytest.raises(OntologyVersionMismatch):
+        with pytest.raises(OntologyMismatchError):
             await client.graphs.update("med", schema=GraphSchema(version="3.0"))
 
         assert (await client.graphs.get("med")).graph_schema.version == "1.0"

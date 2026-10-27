@@ -9,12 +9,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from am_diag.api.errors import RegistryError
+from am_diag.api.errors import OntologyMismatchError, RegistryError
 from am_diag.common.data_models.connection import GraphConnection, VectorConnection
 from am_diag.common.data_models.graph_record import GraphRecord
 from am_diag.common.data_models.project import ProjectRecord
 from am_diag.common.data_models.schema import GraphSchema
 from am_diag.common.schema import MEDICAL_GRAPHRAG_SCHEMA
+from am_diag.db.graph.base import GraphStore
+from am_diag.db.graph.errors import OntologyVersionMismatch
 
 
 if TYPE_CHECKING:
@@ -25,6 +27,14 @@ if TYPE_CHECKING:
 # The admin classes expose a ``.list()`` method that shadows the builtin ``list``
 # inside the class namespace; this alias keeps ``list[...]`` annotations valid.
 _List = list
+
+
+async def _register_ontology(graph_store: GraphStore, schema: GraphSchema) -> None:
+    """Store ``schema`` in the graph, reporting a conflict as an API error."""
+    try:
+        await graph_store.register_ontology(schema)
+    except OntologyVersionMismatch as exc:
+        raise OntologyMismatchError(str(exc)) from exc
 
 
 class GraphAdmin:
@@ -70,7 +80,7 @@ class GraphAdmin:
                 graph attached to the workspace.
             ConnectionError: If a referenced env var is unset or the backend is
                 unreachable.
-            OntologyVersionMismatch: If the backend already stores a different
+            OntologyMismatchError: If the backend already stores a different
                 ontology for the graph, such as data left from an earlier graph
                 that was deleted without ``drop_data``.
         """
@@ -88,8 +98,10 @@ class GraphAdmin:
         try:
             graph = self._pool.graph(graph_id)
             await graph.graph_store.health_check()
+            # Register first so a graph that holds another ontology is rejected
+            # before any constraint is created in it.
+            await _register_ontology(graph.graph_store, schema)
             await graph.graph_store.setup_schema(schema)
-            await graph.graph_store.register_ontology(schema)
         except Exception:
             await self._pool.evict_graph(graph_id)
             self._registry.remove_graph(graph_id)
@@ -120,14 +132,14 @@ class GraphAdmin:
 
         Raises:
             GraphNotFoundError: If the graph is not registered.
-            OntologyVersionMismatch: If the graph already holds a different
+            OntologyMismatchError: If the graph already holds a different
                 ontology than ``schema``.
         """
         # Resolve the record first so an unknown id fails before any backend write.
         self._registry.get_graph(graph_id)
         if schema is not None:
             graph = self._pool.graph(graph_id)
-            await graph.graph_store.register_ontology(schema)
+            await _register_ontology(graph.graph_store, schema)
         updated = self._registry.update_graph(
             graph_id,
             name=name,
