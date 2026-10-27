@@ -1,7 +1,8 @@
 """Cross-graph (federated) retrieval over a project's graphs.
 
 Each graph runs its own :class:`SearchEngine` (its own schema and embedder) and
-yields a fused, ``source_graph_id``-tagged list. The per-graph lists are fused
+yields a fused, ``source_graph_id``-tagged list. Rows from generated Cypher
+skip fusion and are returned first. The per-graph lists are fused
 once more across graphs — cross-encoder over the union when a reranker is
 available, else RRF over the per-graph ranked lists. Text-based fusion is
 schema-agnostic, so heterogeneous-schema graphs fuse correctly.
@@ -83,10 +84,14 @@ async def federated_search(
             for graph in targets
         )
     )
+    # Cypher rows have no score on the vector scale, so each graph's rows go
+    # first and unchanged while everything else is fused across graphs.
+    rows = [r for results in per_graph for r in results if r.source == "cypher"]
+    rest = [[r for r in results if r.source != "cypher"] for results in per_graph]
     if reranker is not None:
-        flat = [result for sublist in per_graph for result in sublist]
-        return await cross_encoder_rerank(query, flat, reranker, top_k=limit)
-    return rrf(list(per_graph), k=rrf_k)[:limit]
+        flat = [result for sublist in rest for result in sublist]
+        return [*rows, *await cross_encoder_rerank(query, flat, reranker, top_k=limit)]
+    return [*rows, *rrf(rest, k=rrf_k)[:limit]]
 
 
 class FederatedSearch:

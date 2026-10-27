@@ -1,22 +1,47 @@
 """Top-level ``search()`` entry point.
 
-Fans out over the recipe's named methods concurrently, applies the requested
-reranker, and returns fused ``SearchResult`` items.
+A search runs in three stages. The recipe's methods run first, in parallel.
+Its expanders then run in parallel on the entities and chunks the methods found.
+The remaining results are fused with the recipe's reranker. Rows from generated
+Cypher skip fusion: their scores are not on the same scale as vector scores, so
+they are returned first and do not count against the recipe's ``limit``.
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
+from am_diag.common.data_models.chunk import Chunk
+from am_diag.common.data_models.relation import Relation
 from am_diag.common.data_models.schema import GraphSchema
-from am_diag.common.data_models.search import SearchResult
+from am_diag.common.data_models.search import CypherRow, SearchResult
 from am_diag.db.graph.base import GraphStore
 from am_diag.db.vector.base import VectorStoreBase
 from am_diag.retrieval import recipes
 from am_diag.retrieval.config import RetrievalConfig, SearchConfig
 from am_diag.retrieval.filters import SearchFilters
+from am_diag.retrieval.methods.base import (
+    Expander,
+    ExpansionContext,
+    collect_seeds,
+)
+from am_diag.retrieval.methods.chunk_expand import chunks_mentioning, chunks_two_hop
+from am_diag.retrieval.methods.chunk_keywords import chunk_keyword_search
+from am_diag.retrieval.methods.chunk_vectors import fetch_chunk_vectors
+from am_diag.retrieval.methods.entity_lookup import entity_lookup
+from am_diag.retrieval.methods.keywords import Keywords, extract_keywords
+from am_diag.retrieval.methods.local_context import local_context
+from am_diag.retrieval.methods.relation_expand import (
+    expand_relations,
+    relation_to_fact,
+)
+from am_diag.retrieval.methods.siblings import is_enumeration_query, sibling_entities
 from am_diag.retrieval.rerank import cross_encoder_rerank, rrf
+from am_diag.retrieval.rerank.cosine import cosine_rerank
+from am_diag.retrieval.rerank.facts import filter_facts
+from am_diag.retrieval.retrievers.base import HybridRetriever
 from am_diag.retrieval.retrievers.chunk import ChunkRetriever
 from am_diag.retrieval.retrievers.community import CommunityRetriever
 from am_diag.retrieval.retrievers.entity import EntityRetriever
@@ -26,17 +51,35 @@ from am_diag.vector.embedding.base import Embedder
 from am_diag.vector.reranking.base import Reranker
 
 
+_KEYWORD_METHODS = frozenset({"entity_lookup", "chunk_keywords"})
+
+
+@dataclass(frozen=True)
+class _MethodRequest:
+    """Inputs shared by every method in one search."""
+
+    query: str
+    recipe: SearchConfig
+    filters: SearchFilters | None
+    keywords: Keywords | None
+
+
+Method = Callable[[_MethodRequest], Awaitable[list[SearchResult]]]
+
+
 class SearchEngine:
     """Orchestrates multi-strategy retrieval with recipe-driven fan-out.
 
-    Constructed once with all dependencies; call ``search()`` per query.
+    Constructed once with all dependencies; call ``search()`` per query. The
+    engine keeps no per-query state, so concurrent searches are safe.
 
     Args:
         config: Retrieval configuration.
         vector_store: Vector store (all four collections).
         graph_store: Graph database client.
         embedder: Embedder for query vectorisation.
-        schema: Optional GraphSchema for Text2Cypher retriever.
+        schema: Optional GraphSchema for the Text2Cypher retriever and for
+            keyword extraction.
         reranker: Optional cross-encoder reranker (needed for
             ``HYBRID_CROSS_ENCODER`` recipe).
     """
@@ -53,6 +96,10 @@ class SearchEngine:
         """Initialize search engine with config and dependencies."""
         self._config = config
         self._reranker = reranker
+        self._vector_store = vector_store
+        self._graph = graph_store
+        self._embedder = embedder
+        self._schema = schema
 
         # Build retrievers once
         self._entity = EntityRetriever(config, vector_store, graph_store, embedder)
@@ -64,9 +111,27 @@ class SearchEngine:
             graph_store,
             embedder,
         )
-        self._text2cypher: Any = (
+        self._text2cypher: Text2CypherRetriever | None = (
             Text2CypherRetriever(config, graph_store, schema) if schema else None
         )
+
+        self._methods: dict[str, Method] = {
+            "entity": lambda req: self._retrieve(self._entity, req),
+            "relation": self._relation_method,
+            "chunk": lambda req: self._retrieve(self._chunk, req),
+            "community": lambda req: self._retrieve(self._community, req),
+            "text2cypher": self._text2cypher_method,
+            "entity_lookup": self._entity_lookup_method,
+            "chunk_keywords": self._chunk_keywords_method,
+        }
+        self._expanders: dict[str, Expander] = {
+            "relations_1hop": self._relations_1hop,
+            "relations_2hop": self._relations_2hop,
+            "chunks_mentions": self._chunks_mentions,
+            "chunks_two_hop": self._chunks_two_hop,
+            "siblings": self._siblings,
+            "local_context": self._local_context,
+        }
 
     async def search(
         self,
@@ -83,7 +148,9 @@ class SearchEngine:
             filters: Optional metadata filters.
 
         Returns:
-            Ranked ``SearchResult`` items, truncated to ``recipe.limit``.
+            Rows from generated Cypher first, in query order, then the fused
+            results truncated to ``recipe.limit``. Tell the two apart by
+            ``SearchResult.source == "cypher"``.
         """
         if isinstance(recipe, str):
             recipe = _resolve_recipe(recipe)
@@ -91,52 +158,201 @@ class SearchEngine:
         if not recipe.methods:
             return []
 
-        raw_results = await self._fan_out(query, recipe, filters)
-        return await self._fuse(query, recipe, raw_results)
+        keywords = (
+            await extract_keywords(query, self._schema, self._config.keyword_limit)
+            if _KEYWORD_METHODS.intersection(recipe.methods)
+            else None
+        )
+        request = _MethodRequest(query, recipe, filters, keywords)
+        method_lists = await asyncio.gather(
+            *(self._methods[name](request) for name in recipe.methods),
+        )
+        cypher_rows, vector_lists = _split_cypher(method_lists)
 
-    async def _fan_out(
-        self,
-        query: str,
-        recipe: SearchConfig,
-        filters: SearchFilters | None,
-    ) -> list[list[SearchResult]]:
-        """Fan out over recipe methods concurrently.
-
-        The four hybrid retrievers share a uniform signature and all receive the
-        recipe's BFS flags. Text2Cypher is the odd one out — it never expands.
-        """
-        hybrid: dict[str, Any] = {
-            "entity": self._entity,
-            "relation": self._relation,
-            "chunk": self._chunk,
-            "community": self._community,
-        }
-
-        tasks = []
-        for method in recipe.methods:
-            if method == "text2cypher":
-                if self._text2cypher:
-                    tasks.append(self._text2cypher.retrieve(query, filters=filters))
-                continue
-            retriever = hybrid.get(method)
-            if retriever is None:
-                continue
-            tasks.append(
-                retriever.retrieve(
-                    query,
-                    filters=filters,
-                    bfs=recipe.bfs,
-                    bfs_depth=recipe.bfs_depth,
+        query_vector = (
+            (await self._embedder.embed([query]))[0]
+            if recipe.reranker == "cosine" or "chunks_mentions" in recipe.expanders
+            else None
+        )
+        expansions: list[list[SearchResult]] = []
+        if recipe.expanders:
+            context = ExpansionContext(
+                query=query,
+                seeds=collect_seeds([r for lst in vector_lists for r in lst]),
+                filters=filters,
+                query_vector=query_vector,
+            )
+            expansions = list(
+                await asyncio.gather(
+                    *(self._expanders[name](context) for name in recipe.expanders),
                 ),
             )
 
-        return await asyncio.gather(*tasks)
+        fused = await self._fuse(
+            query, recipe, [*vector_lists, *expansions], query_vector
+        )
+        return [*cypher_rows[: self._config.text2cypher_limit], *fused]
 
+    # -- methods ------------------------------------------------------
+    async def _retrieve(
+        self,
+        retriever: HybridRetriever,
+        request: _MethodRequest,
+    ) -> list[SearchResult]:
+        """Run one hybrid retriever with the recipe's BFS flags."""
+        return await retriever.retrieve(
+            request.query,
+            filters=request.filters,
+            bfs=request.recipe.bfs,
+            bfs_depth=request.recipe.bfs_depth,
+        )
+
+    async def _relation_method(self, request: _MethodRequest) -> list[SearchResult]:
+        """Search relations, as facts when the recipe asks for them."""
+        results = await self._retrieve(self._relation, request)
+        if not request.recipe.facts:
+            return results
+
+        facts = [
+            SearchResult(
+                item=relation_to_fact(r.item),
+                score=r.score,
+                source=r.source,
+                matched_on=r.matched_on,
+            )
+            for r in results
+            if isinstance(r.item, Relation)
+        ]
+        others = [r for r in results if not isinstance(r.item, Relation)]
+        kept = filter_facts(
+            facts,
+            min_score=self._config.fact_min_score,
+            max_facts=self._config.fact_max,
+            min_keep=self._config.fact_min_keep,
+        )
+        return [*kept, *others]
+
+    async def _text2cypher_method(self, request: _MethodRequest) -> list[SearchResult]:
+        """Run text-to-Cypher, or nothing when no schema was given."""
+        if self._text2cypher is None:
+            return []
+        return await self._text2cypher.retrieve(request.query, filters=request.filters)
+
+    async def _entity_lookup_method(
+        self, request: _MethodRequest
+    ) -> list[SearchResult]:
+        """Look entities up by the question's keywords."""
+        if request.keywords is None:
+            return []
+        return await entity_lookup(
+            self._graph,
+            request.keywords.llm[: self._config.lookup_keywords],
+            exact_per_keyword=self._config.exact_per_keyword,
+            contains_per_keyword=self._config.contains_per_keyword,
+            filters=request.filters,
+        )
+
+    async def _chunk_keywords_method(
+        self, request: _MethodRequest
+    ) -> list[SearchResult]:
+        """Search chunks once per keyword."""
+        if request.keywords is None:
+            return []
+        return await chunk_keyword_search(
+            self._vector_store,
+            self._config.chunk_collection,
+            self._embedder,
+            request.query,
+            request.keywords,
+            keyword_queries=self._config.chunk_keyword_queries,
+            simple_queries=self._config.chunk_simple_queries,
+            top_k=self._config.chunk_keyword_top_k,
+            filters=request.filters,
+        )
+
+    # -- expanders ----------------------------------------------------
+    def _excluded_relation_types(self) -> list[str]:
+        """Relation types that expansion skips."""
+        if self._config.exclude_hierarchy_edges:
+            return list(self._config.hierarchy_edge_types)
+        return []
+
+    async def _relations_1hop(self, context: ExpansionContext) -> list[SearchResult]:
+        """Expand seed entities by one hop."""
+        return await expand_relations(
+            self._graph,
+            context.seeds.entity_ids[: self._config.hop1_seeds],
+            hops=1,
+            per_seed=self._config.hop1_per_seed,
+            total_limit=self._config.hop1_limit,
+            exclude_types=self._excluded_relation_types(),
+            filters=context.filters,
+        )
+
+    async def _relations_2hop(self, context: ExpansionContext) -> list[SearchResult]:
+        """Expand seed entities by two hops."""
+        return await expand_relations(
+            self._graph,
+            context.seeds.entity_ids[: self._config.hop2_seeds],
+            hops=2,
+            per_seed=self._config.hop2_per_seed,
+            total_limit=self._config.hop2_limit,
+            exclude_types=self._excluded_relation_types(),
+            filters=context.filters,
+        )
+
+    async def _chunks_mentions(self, context: ExpansionContext) -> list[SearchResult]:
+        """Find chunks that mention the seed entities."""
+        if context.query_vector is None:
+            return []
+        return await chunks_mentioning(
+            self._graph,
+            self._vector_store,
+            self._config.chunk_collection,
+            context.seeds.entity_ids[: self._config.mentions_seeds],
+            context.query_vector,
+            per_entity=self._config.mentions_per_entity,
+            filters=context.filters,
+        )
+
+    async def _chunks_two_hop(self, context: ExpansionContext) -> list[SearchResult]:
+        """Find chunks that mention neighbours of the seed entities."""
+        return await chunks_two_hop(
+            self._graph,
+            self._vector_store,
+            self._config.chunk_collection,
+            context.seeds.entity_ids[: self._config.two_hop_chunk_seeds],
+            limit=self._config.two_hop_chunk_limit,
+            filters=context.filters,
+        )
+
+    async def _siblings(self, context: ExpansionContext) -> list[SearchResult]:
+        """Find siblings of the seed entities when the question asks for a list."""
+        if not is_enumeration_query(context.query):
+            return []
+        return await sibling_entities(
+            self._graph,
+            context.seeds.entity_ids,
+            max_siblings=self._config.max_siblings,
+            filters=context.filters,
+        )
+
+    async def _local_context(self, context: ExpansionContext) -> list[SearchResult]:
+        """Add the entities and neighbouring chunks around matched chunks."""
+        return await local_context(
+            self._graph,
+            self._vector_store,
+            self._config.chunk_collection,
+            context.seeds.chunk_ids[: self._config.local_context_chunks],
+        )
+
+    # -- fusion -------------------------------------------------------
     async def _fuse(
         self,
         query: str,
         recipe: SearchConfig,
         raw_results: list[list[SearchResult]],
+        query_vector: list[float] | None = None,
     ) -> list[SearchResult]:
         """Fuse results using the recipe's reranker strategy."""
         non_empty = [r for r in raw_results if r]
@@ -146,6 +362,10 @@ class SearchEngine:
         if recipe.reranker == "cross_encoder" and self._reranker:
             flat = [item for sublist in non_empty for item in sublist]
             fused = await cross_encoder_rerank(query, flat, self._reranker)
+        elif recipe.reranker == "cosine" and query_vector is not None:
+            fused = await self._cosine_fuse(
+                query_vector, rrf(non_empty, k=self._config.rrf_k)
+            )
         else:
             fused = rrf(non_empty, k=self._config.rrf_k)
 
@@ -154,19 +374,44 @@ class SearchEngine:
 
         return fused[: recipe.limit]
 
+    async def _cosine_fuse(
+        self,
+        query_vector: list[float],
+        fused: list[SearchResult],
+    ) -> list[SearchResult]:
+        """Order chunks by cosine similarity; other results follow in fused order."""
+        vectors = await fetch_chunk_vectors(
+            self._vector_store,
+            self._config.chunk_collection,
+            self._embedder,
+            fused,
+            min_coverage=self._config.cosine_vector_coverage,
+        )
+        chunks = [r for r in fused if isinstance(r.item, Chunk)]
+        others = [r for r in fused if not isinstance(r.item, Chunk)]
+        ranked = cosine_rerank(query_vector, chunks, vectors)
+        ranked_ids = {id(r) for r in ranked}
+        unranked = [r for r in chunks if id(r) not in ranked_ids]
+        return [*ranked, *others, *unranked]
+
+
+def _split_cypher(
+    method_lists: list[list[SearchResult]],
+) -> tuple[list[SearchResult], list[list[SearchResult]]]:
+    """Separate Cypher rows from the lists that go into fusion."""
+    rows: list[SearchResult] = []
+    rest: list[list[SearchResult]] = []
+    for results in method_lists:
+        rows += [r for r in results if isinstance(r.item, CypherRow)]
+        remaining = [r for r in results if not isinstance(r.item, CypherRow)]
+        if remaining:
+            rest.append(remaining)
+    return rows, rest
+
 
 def _resolve_recipe(name: str) -> SearchConfig:
     """Look up a recipe by name."""
-    recipe_map = {
-        "entity": recipes.ENTITY,
-        "relation": recipes.RELATION,
-        "chunk": recipes.CHUNK,
-        "community": recipes.COMMUNITY,
-        "hybrid_rrf": recipes.HYBRID_RRF,
-        "hybrid_cross_encoder": recipes.HYBRID_CROSS_ENCODER,
-        "bfs_expand": recipes.BFS_EXPAND,
-        "text2cypher": recipes.TEXT2CYPHER,
-    }
+    recipe_map = dict(recipes.ALL_RECIPES)
     recipe = recipe_map.get(name)
     if recipe is None:
         raise ValueError(f"Unknown recipe: {name!r}; options: {list(recipe_map)}")

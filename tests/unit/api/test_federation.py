@@ -20,7 +20,7 @@ from am_diag.common.data_models.connection import GraphConnection, VectorConnect
 from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.graph_record import GraphRecord
 from am_diag.common.data_models.project import ProjectRecord
-from am_diag.common.data_models.search import SearchResult
+from am_diag.common.data_models.search import CypherRow, SearchResult
 from am_diag.common.schema import MEDICAL_GRAPHRAG_SCHEMA
 
 
@@ -110,3 +110,34 @@ class TestFederatedSearch:
         assert len(ctx) <= 500
         assert "from_a" in ctx
         assert "from_b" in ctx
+
+
+class TestFederatedCypherRows:
+    """Cypher rows skip cross-graph fusion."""
+
+    async def test_rows_come_first_and_keep_their_graph_id(self, tmp_path):
+        """Verify each graph's Cypher rows lead the result, unfused."""
+        client = _setup(tmp_path)
+        for graph_id in ("a", "b"):
+            row = SearchResult(
+                item=CypherRow(values={"graph": graph_id}),
+                score=0.01,
+                source="cypher",
+            )
+            entity = SearchResult(
+                item=Entity(name=f"from_{graph_id}", label="Disease"),
+                score=1.0,
+                source="entity",
+            )
+            client.graph(graph_id).search_engine.search = AsyncMock(
+                return_value=[row, entity]
+            )
+
+        results = await client.project("p").search("q", limit=1)
+
+        assert [r.source for r in results[:2]] == ["cypher", "cypher"]
+        assert {(r.item.values["graph"], r.source_graph_id) for r in results[:2]} == {
+            ("a", "a"),
+            ("b", "b"),
+        }
+        assert len(results) == 3

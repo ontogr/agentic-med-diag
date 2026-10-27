@@ -33,7 +33,10 @@ Map each sub-question to the most appropriate retrieval recipe:
 - "chunk" for text passage search
 - "community" for thematic/community-level answers
 - "hybrid_rrf" for general multi-strategy search
-- "text2cypher" for structured graph queries
+- "text2cypher" for structured graph queries and counts
+- "enumerate" for questions that ask for a list
+- "relation_expand" for how two or more things are related
+- "multi_path" for broad questions that need facts about several things
 
 Output an AgentPlan with your sub-questions and rationale.
 """
@@ -43,7 +46,10 @@ You are a clinical evidence researcher. Given one specific sub-question, \
 use the available retrieval tools to gather grounded evidence.
 
 Rules:
-1. Use the most appropriate tool for each search need.
+1. Use the most appropriate tool for each search need: `enumerate_entities` \
+   for list questions, `cypher_search` for counts and aggregates, \
+   `relation_expand` for how things are related, `entity_lookup` for named \
+   entities, and `multi_path` by default.
 2. For each piece of evidence, capture the source and a brief citation.
 3. Write raw findings to the evidence directory.
 4. Return distilled EvidenceItems with scores reflecting relevance.

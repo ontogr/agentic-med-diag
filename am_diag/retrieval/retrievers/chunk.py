@@ -8,11 +8,26 @@ When BFS is requested, seeds are the entities the chunks mention, fetched via
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from am_diag.common.cypher.loader import load
 from am_diag.common.data_models.chunk import Chunk
 from am_diag.common.data_models.vector_record import VectorHit
 from am_diag.retrieval.retrievers.base import HybridRetriever
+
+
+def chunk_from_payload(chunk_id: UUID, payload: dict[str, Any]) -> Chunk:
+    """Build a ``Chunk`` from a vector-store payload."""
+    text = payload.get("text", "")
+    return Chunk(
+        id=chunk_id,
+        text=text,
+        document_id=payload.get("document_id", ""),
+        document_source=payload.get("document_source", ""),
+        chunk_index=payload.get("chunk_index", 0),
+        chunk_size=payload.get("chunk_size", len(text)),
+        cut_type=payload.get("cut_type", "hybrid"),
+    )
 
 
 class ChunkRetriever(HybridRetriever):
@@ -23,16 +38,7 @@ class ChunkRetriever(HybridRetriever):
 
     def _build(self, hit: VectorHit, row: dict[str, Any]) -> Chunk:
         """Build a ``Chunk`` from the hit payload."""
-        p = hit.payload
-        return Chunk(
-            id=hit.id,
-            text=p.get("text", ""),
-            document_id=p.get("document_id", ""),
-            document_source=p.get("document_source", ""),
-            chunk_index=p.get("chunk_index", 0),
-            chunk_size=p.get("chunk_size", len(p.get("text", ""))),
-            cut_type=p.get("cut_type", "hybrid"),
-        )
+        return chunk_from_payload(hit.id, hit.payload)
 
     async def _seed_ids(
         self,
@@ -48,4 +54,4 @@ class ChunkRetriever(HybridRetriever):
         return [r["id"] for r in out if r.get("id")]
 
 
-__all__ = ["ChunkRetriever"]
+__all__ = ["ChunkRetriever", "chunk_from_payload"]

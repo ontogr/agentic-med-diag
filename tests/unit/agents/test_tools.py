@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 from am_diag.agents.tools import _serialize_results, make_retrieval_tools
 from am_diag.common.data_models import SearchResult
 from am_diag.common.data_models.entity import Entity
+from am_diag.common.data_models.search import Fact
 from am_diag.retrieval.search import SearchEngine
 
 
@@ -24,16 +25,33 @@ class TestRetrievalTools:
         assert serialized[0]["source"] == "test"
         assert serialized[0]["item"]["name"] == "metformin"
 
+    def test_fact_serialization_includes_rendered_text(self) -> None:
+        """A Fact carries its one-line text for the model."""
+        fact = Fact(
+            head_id="a",
+            head_name="budesonide",
+            type="INDICATION",
+            tail_id="b",
+            tail_name="asthma",
+            sources=["DrugBank"],
+        )
+        serialized = _serialize_results(
+            [SearchResult(item=fact, score=1.0, source="relations_1hop")]
+        )
+        assert serialized[0]["item"]["text"] == (
+            "budesonide \u2014[INDICATION]\u2192 asthma (sources: DrugBank)"
+        )
+
     def test_empty_list(self) -> None:
         """Serializing an empty result list returns an empty list."""
         assert _serialize_results([]) == []
 
-    def test_returns_seven_tools(self) -> None:
-        """Returns exactly 7 tools."""
+    def test_returns_eleven_tools(self) -> None:
+        """Returns exactly 11 tools."""
         engine = MagicMock(spec=SearchEngine)
         engine.search = AsyncMock(return_value=[])
         tools = make_retrieval_tools(engine)
-        assert len(tools) == 7
+        assert len(tools) == 11
 
     def test_all_tools_have_names(self) -> None:
         """All tools have expected names."""
@@ -48,6 +66,8 @@ class TestRetrievalTools:
         assert "hybrid_search" in names
         assert "cypher_search" in names
         assert "global_map_reduce" in names
+        assert {"entity_lookup", "relation_expand"} <= names
+        assert {"enumerate_entities", "multi_path"} <= names
 
     def test_entity_search_calls_engine(self) -> None:
         """entity_search tool invokes engine.search."""

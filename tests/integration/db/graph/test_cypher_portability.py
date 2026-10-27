@@ -36,6 +36,49 @@ _READ_CASES = {
     ),
     "retrieval/bfs_expand": ("entity", 2, {"id", "label", "name", "hop", "rels"}),
     "retrieval/chunk_seed_entities": ("chunk", 2, {"id"}),
+    "retrieval/expand_relations_1hop": (
+        "entity",
+        1,
+        {
+            "id",
+            "type",
+            "description",
+            "structural_label",
+            "sources",
+            "chunk_ids",
+            "score",
+            "head_id",
+            "head_name",
+            "tail_id",
+            "tail_name",
+        },
+    ),
+    "retrieval/expand_relations_2hop": (
+        "entity",
+        1,
+        {
+            "head_id",
+            "head_name",
+            "first_type",
+            "via_name",
+            "second_type",
+            "tail_id",
+            "tail_name",
+        },
+    ),
+    "retrieval/entity_exact": (
+        "entity",
+        1,
+        {"id", "name", "labels", "description", "curie"},
+    ),
+    "retrieval/entity_contains": (
+        "entity",
+        1,
+        {"id", "name", "labels", "description", "curie"},
+    ),
+    "retrieval/siblings": ("entity", 1, {"id", "name", "labels"}),
+    "retrieval/entity_chunk_ids": ("entity", 1, {"entity_id", "chunk_id"}),
+    "retrieval/two_hop_chunk_ids": ("entity", 1, {"chunk_id"}),
     "retrieval/community_seed_entities": ("community", 2, {"id"}),
     "retrieval/community_members": (
         "community",
@@ -66,6 +109,10 @@ _READ_CASES = {
         {"entity_id", "entity_name", "entity_labels", "edges"},
     ),
     "community/all_entity_edges": ("page", 2, {"source", "target", "score"}),
+}
+_PARAM_OVERRIDES = {
+    "retrieval/entity_exact": {"keywords": ["ALPHA"]},
+    "retrieval/entity_contains": {"keywords": ["lph"]},
 }
 _WRITE_CASES = {
     "ingest/upsert_documents",
@@ -136,6 +183,12 @@ class TestCypherPortability:
             "level": 0,
             "offset": 0,
             "limit": 100,
+            "per_seed": 10,
+            "per_keyword": 5,
+            "max_siblings": 20,
+            "exclude": [],
+            "keywords": ["alpha"],
+            **_PARAM_OVERRIDES.get(name, {}),
         }
         query = load(name).replace("${depth}", "2")
         rows = await graph_store.execute_query(query, params, read_only=True)
