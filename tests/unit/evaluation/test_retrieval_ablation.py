@@ -9,7 +9,8 @@ import pytest
 
 from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.evaluation import QuestionResult, RetrievalQuestion
-from am_diag.common.data_models.search import SearchResult
+from am_diag.common.data_models.relation import Relation
+from am_diag.common.data_models.search import Fact, SearchResult
 from am_diag.evaluation.retrieval_ablation import (
     first_gold_rank,
     hit_at_k,
@@ -41,6 +42,20 @@ class TestMetrics:
     def test_rank_is_zero_when_no_gold_result(self) -> None:
         """No gold result gives rank 0."""
         assert first_gold_rank([_result(uuid4())], frozenset({"x"})) == 0
+
+    def test_fact_matches_on_its_endpoint_entities(self) -> None:
+        """A fact has no id, so its head and tail ids are used."""
+        fact = Fact(head_id="h", head_name="a", type="T", tail_id="t", tail_name="b")
+        results = [SearchResult(item=fact, score=1.0, source="relations_1hop")]
+
+        assert first_gold_rank(results, frozenset({"t"})) == 1
+
+    def test_missing_endpoint_does_not_match_the_text_none(self) -> None:
+        """A relation with no endpoints must not match a gold id of "None"."""
+        relation = Relation(type="T")
+        results = [SearchResult(item=relation, score=1.0, source="relation")]
+
+        assert first_gold_rank(results, frozenset({"None"})) == 0
 
     def test_reciprocal_rank(self) -> None:
         """Rank 2 scores one half and a miss scores zero."""

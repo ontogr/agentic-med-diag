@@ -120,6 +120,21 @@ class TestGuardCypher:
 
         assert any(expected in error for error in guarded.errors)
 
+    @pytest.mark.parametrize(
+        "limit", ["$n", "toInteger('5000')", "5 + 5000", "size([1, 2])"]
+    )
+    def test_rejects_limits_that_are_not_whole_numbers(self, limit: str) -> None:
+        """An expression or parameter could return more rows than the cap allows."""
+        guarded = _guard(f"MATCH (n:Entity) RETURN n LIMIT {limit}")
+
+        assert any("LIMIT must be a whole number" in e for e in guarded.errors)
+
+    def test_property_named_limit_is_not_a_limit_clause(self) -> None:
+        """A `limit` property does not confuse the whole-number check."""
+        guarded = _guard("MATCH (n:Entity) RETURN n.limit AS cap LIMIT 5")
+
+        assert guarded.errors == []
+
     def test_ignores_keywords_inside_string_literals(self) -> None:
         """A value such as 'SET' is data, not a write clause."""
         guarded = _guard("MATCH (n:Entity) WHERE n.name = 'SET' RETURN n LIMIT 5")

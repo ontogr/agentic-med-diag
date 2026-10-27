@@ -24,8 +24,10 @@ _RELATIONSHIP_TYPES = re.compile(
 _TYPE_EQUALS = re.compile(r"\btype\s*(?::|=)\s*'([^']+)'", re.IGNORECASE)
 _TYPE_IN = re.compile(r"\btype\s+IN\s*\[([^\]]*)\]", re.IGNORECASE)
 _QUOTED = re.compile(r"'([^']+)'")
-_LIMIT = re.compile(r"\bLIMIT\s+(\d+)\b", re.IGNORECASE)
-_HAS_LIMIT = re.compile(r"\bLIMIT\b", re.IGNORECASE)
+# A LIMIT that is a whole number and not the start of an expression such as
+# "5 + 5000". A property named limit (n.limit) is not a LIMIT clause.
+_LIMIT = re.compile(r"(?<![.\w])LIMIT\s+(\d+)\b(?!\s*[-+*/%^(])", re.IGNORECASE)
+_ANY_LIMIT = re.compile(r"(?<![.\w])LIMIT\b", re.IGNORECASE)
 _RETURN = re.compile(r"\bRETURN\b", re.IGNORECASE)
 _PATH_FEATURES = re.compile(
     r"\b(?:allShortestPaths|shortestPath)\s*\(|\bMATCH\s+[A-Za-z_]\w*\s*=",
@@ -114,6 +116,11 @@ def guard_cypher(
             f"{sorted(relation_types)}."
         )
 
+    if len(_ANY_LIMIT.findall(bare)) != len(_LIMIT.findall(bare)):
+        errors.append(
+            "LIMIT must be a whole number; expressions and parameters are not allowed."
+        )
+
     if dialect == "falkordb" and _PATH_FEATURES.search(bare):
         errors.append(
             "This database does not support shortestPath or path variables; "
@@ -170,8 +177,7 @@ def _has_outer_limit(bare: str) -> bool:
         if depths[match.start()] == 0:
             outer_return_end = match.end()
     return any(
-        depths[match.start()] == 0
-        for match in _HAS_LIMIT.finditer(bare, outer_return_end)
+        depths[match.start()] == 0 for match in _LIMIT.finditer(bare, outer_return_end)
     )
 
 

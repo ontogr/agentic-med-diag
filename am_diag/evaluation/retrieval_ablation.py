@@ -7,12 +7,16 @@ import statistics
 import time
 from collections.abc import Mapping, Sequence
 
+from am_diag.common.data_models.chunk import Chunk
+from am_diag.common.data_models.community_report import CommunityReport
+from am_diag.common.data_models.entity import Entity
 from am_diag.common.data_models.evaluation import (
     QuestionResult,
     RecipeSummary,
     RetrievalQuestion,
 )
-from am_diag.common.data_models.search import SearchResult
+from am_diag.common.data_models.relation import Relation
+from am_diag.common.data_models.search import CypherRow, Fact, SearchResult
 from am_diag.retrieval.config import SearchConfig
 from am_diag.retrieval.search import SearchEngine
 
@@ -20,13 +24,27 @@ from am_diag.retrieval.search import SearchEngine
 def first_gold_rank(results: Sequence[SearchResult], gold_ids: frozenset[str]) -> int:
     """Return the 1-based rank of the first result whose item id is gold, or 0."""
     for rank, result in enumerate(results, start=1):
-        item = result.item
-        if str(getattr(item, "id", "")) in gold_ids:
-            return rank
-        head, tail = getattr(item, "head_id", None), getattr(item, "tail_id", None)
-        if {str(head), str(tail)} & gold_ids:
+        if _item_ids(result.item) & gold_ids:
             return rank
     return 0
+
+
+def _item_ids(
+    item: Entity | Relation | Chunk | CommunityReport | CypherRow | Fact,
+) -> set[str]:
+    """Return the ids a result can be matched to a gold id by.
+
+    A fact or relation also matches on its endpoint entities. A Cypher row has no
+    id of its own.
+    """
+    if isinstance(item, CypherRow):
+        return set()
+    if isinstance(item, Fact):
+        return {item.head_id, item.tail_id}
+    ids = {str(item.id)}
+    if isinstance(item, Relation):
+        ids |= {str(i) for i in (item.head_id, item.tail_id) if i is not None}
+    return ids
 
 
 def hit_at_k(rank: int, k: int) -> bool:
