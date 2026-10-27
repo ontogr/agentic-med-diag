@@ -43,12 +43,23 @@ class TestMetrics:
         """No gold result gives rank 0."""
         assert first_gold_rank([_result(uuid4())], frozenset({"x"})) == 0
 
-    def test_fact_matches_on_its_endpoint_entities(self) -> None:
-        """A fact has no id, so its head and tail ids are used."""
+    def test_fact_is_gold_only_when_both_endpoints_are(self) -> None:
+        """An edge between two gold entities counts; one that touches one does not."""
         fact = Fact(head_id="h", head_name="a", type="T", tail_id="t", tail_name="b")
         results = [SearchResult(item=fact, score=1.0, source="relations_1hop")]
 
-        assert first_gold_rank(results, frozenset({"t"})) == 1
+        assert first_gold_rank(results, frozenset({"h", "t"})) == 1
+        assert first_gold_rank(results, frozenset({"t"})) == 0
+
+    def test_relation_is_gold_when_both_endpoints_are_or_its_own_id_is(self) -> None:
+        """A relation matches on its id, or on both endpoint entities."""
+        head, tail = uuid4(), uuid4()
+        relation = Relation(head_id=head, tail_id=tail, type="T")
+        results = [SearchResult(item=relation, score=1.0, source="relation")]
+
+        assert first_gold_rank(results, frozenset({str(head), str(tail)})) == 1
+        assert first_gold_rank(results, frozenset({str(relation.id)})) == 1
+        assert first_gold_rank(results, frozenset({str(head)})) == 0
 
     def test_missing_endpoint_does_not_match_the_text_none(self) -> None:
         """A relation with no endpoints must not match a gold id of "None"."""

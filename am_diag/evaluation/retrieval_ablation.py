@@ -22,29 +22,33 @@ from am_diag.retrieval.search import SearchEngine
 
 
 def first_gold_rank(results: Sequence[SearchResult], gold_ids: frozenset[str]) -> int:
-    """Return the 1-based rank of the first result whose item id is gold, or 0."""
+    """Return the 1-based rank of the first gold result, or 0.
+
+    An entity, chunk or community report is gold when its id is. A fact is gold
+    only when both of its endpoint entities are, so an expansion fact does not
+    count just because it starts at a gold seed. A relation is gold when its own
+    id is, or when both of its endpoints are. A Cypher row is never gold.
+    """
     for rank, result in enumerate(results, start=1):
-        if _item_ids(result.item) & gold_ids:
+        if _is_gold(result.item, gold_ids):
             return rank
     return 0
 
 
-def _item_ids(
+def _is_gold(
     item: Entity | Relation | Chunk | CommunityReport | CypherRow | Fact,
-) -> set[str]:
-    """Return the ids a result can be matched to a gold id by.
-
-    A fact or relation also matches on its endpoint entities. A Cypher row has no
-    id of its own.
-    """
+    gold_ids: frozenset[str],
+) -> bool:
+    """Return True when ``item`` counts as a gold result."""
     if isinstance(item, CypherRow):
-        return set()
+        return False
     if isinstance(item, Fact):
-        return {item.head_id, item.tail_id}
-    ids = {str(item.id)}
-    if isinstance(item, Relation):
-        ids |= {str(i) for i in (item.head_id, item.tail_id) if i is not None}
-    return ids
+        return {item.head_id, item.tail_id} <= gold_ids
+    if str(item.id) in gold_ids:
+        return True
+    if isinstance(item, Relation) and item.head_id and item.tail_id:
+        return {str(item.head_id), str(item.tail_id)} <= gold_ids
+    return False
 
 
 def hit_at_k(rank: int, k: int) -> bool:
