@@ -78,8 +78,8 @@ dev = [
   "pytest-rerunfailures>=16.2",
   "pytest-xdist>=3.8.0",
   "pytest-socket>=0.7.0",
-  "ruff>=0.16.10",
-  "typos>=1.50.3",
+  "ruff>=0.17.3",
+  "typos>=1.51.1",
 ]
 
 [tool.uv.build-backend]
